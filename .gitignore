@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node (前端阶段启用)
+node_modules/
+dist/
+.vite/
+
+# 数据与本地状态
+*.db
+*.sqlite
+*.sqlite3
+data/
+logs/
+backups/
+
+# 本地配置与密钥（永不提交）
+.env
+.env.*
+*.key
+*.pem
+credentials*.json
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
