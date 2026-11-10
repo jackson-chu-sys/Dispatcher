@@ -1,0 +1,60 @@
+:root{
+  --bg:#0f1420; --panel:#171e2e; --panel2:#1e2739; --line:#2a3550;
+  --text:#e6ecf7; --muted:#8b9ab5; --accent:#2f6fed; --ok:#25a06b; --warn:#e8890c; --bad:#d94b4b;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
+a{color:var(--accent)}
+header{display:flex;align-items:center;gap:14px;padding:12px 18px;background:var(--panel);
+  border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10;flex-wrap:wrap}
+header h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.5px}
+header .nav{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+header .nav a{color:var(--muted);text-decoration:none;padding:4px 10px;border-radius:6px;font-size:13px}
+header .nav a.active,header .nav a:hover{background:var(--panel2);color:var(--text)}
+.clock{color:var(--muted);font-variant-numeric:tabular-nums;font-size:13px}
+main{padding:16px;display:grid;gap:14px;max-width:1500px;margin:0 auto}
+.grid2{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(320px,.65fr);gap:14px}
+@media(max-width:1000px){.grid2{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+.card h2{font-size:13px;margin:0 0 10px;color:var(--muted);font-weight:600;letter-spacing:1px;text-transform:uppercase}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:3px 11px;font-size:12px;color:var(--muted)}
+.chip b{color:var(--text);font-size:14px;margin-right:4px}
+.veh{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;background:var(--panel2);margin-bottom:8px;border-left:3px solid var(--line)}
+.veh .plate{font-weight:600}
+.veh .meta{color:var(--muted);font-size:12px}
+.veh .pos{margin-left:auto;text-align:right;font-size:12px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block;margin-right:6px}
+.dot.on{background:var(--ok);box-shadow:0 0 0 3px rgba(37,160,107,.18)}
+.dot.wait{background:var(--warn)}
+.ride{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;margin-bottom:8px;font-size:13px}
+.ride .hd{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.ride .route{color:var(--muted);font-size:12px;margin:2px 0 6px}
+.badge{font-size:11px;padding:1px 7px;border-radius:10px;border:1px solid var(--line);color:var(--muted)}
+.badge.waiting{color:var(--warn);border-color:#5a4218;background:#2a2213}
+.badge.accepted{color:var(--accent);border-color:#1e3a6b;background:#141d31}
+.badge.boarded{color:var(--ok);border-color:#17422f;background:#12241c}
+.badge.done{color:var(--muted)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--muted);font-weight:500;font-size:12px}
+button{font:inherit;cursor:pointer;border-radius:7px;border:1px solid var(--line);background:var(--panel2);
+  color:var(--text);padding:6px 12px}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.ok{background:var(--ok);border-color:var(--ok);color:#fff}
+button.sm{padding:3px 9px;font-size:12px}
+button:disabled{opacity:.45;cursor:not-allowed}
+select,input{font:inherit;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:7px;padding:7px 9px}
+label{display:block;font-size:12px;color:var(--muted);margin:0 0 4px}
+.field{margin-bottom:10px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.log{font-size:12px;color:var(--muted);max-height:220px;overflow:auto;font-variant-numeric:tabular-nums}
+.log div{padding:2px 0;border-bottom:1px dashed #23304a}
+#mapWrap{position:relative;min-height:420px;background:var(--panel2);border-radius:8px;overflow:hidden}
+#mapWrap svg{display:block;width:100%;height:auto}
+.hint{font-size:12px;color:var(--muted);margin-top:8px}
+.big{font-size:22px;font-weight:600}
+.status-card{padding:14px;border-radius:10px;background:var(--panel2);border:1px solid var(--line)}
+.empty{color:var(--muted);font-size:13px;padding:8px 0}

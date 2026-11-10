@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dispatcher · 司机端</title>
+<link rel="stylesheet" href="/static/base.css">
+<style>
+  main{max-width:720px}
+  .stop-btn{display:block;width:100%;text-align:left;margin-bottom:6px;padding:10px 12px}
+  .stop-btn.current{border-color:#2f6fed;background:#141d31}
+  .stop-btn small{color:#8b9ab5}
+</style>
+</head>
+<body>
+<header>
+  <h1>Dispatcher <span style="color:#8b9ab5;font-weight:400">· 司机端</span></h1>
+  <nav class="nav">
+    <a href="/dispatcher">调度端</a>
+    <a href="/driver" class="active">司机端</a>
+    <a href="/rider">乘客端</a>
+  </nav>
+</header>
+
+<main>
+  <section class="card">
+    <h2>当前司机</h2>
+    <label>选择司机（DEMO 用下拉代替登录）</label>
+    <select id="driverSel" style="width:100%"></select>
+  </section>
+
+  <section class="card">
+    <h2>我的班次</h2>
+    <div id="shifts"></div>
+  </section>
+
+  <section class="card">
+    <h2>待处理叫车</h2>
+    <div id="rides"></div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const BADGE = { waiting: '等待接单', accepted: '已接单（去接）', boarded: '已上车', done: '已送达' };
+let driverId = Number(localStorage.getItem('dispatcher.driver') || 1);
+
+async function loadDrivers() {
+  const list = await (await fetch('/api/drivers')).json();
+  const sel = $('#driverSel');
+  sel.innerHTML = list.map(d => `<option value="${d.id}" ${d.id === driverId ? 'selected' : ''}>${d.name} · ${d.plate || '无车'}${d.plate ? ' (' + d.kind + ')' : ''}</option>`).join('');
+  sel.onchange = () => { driverId = Number(sel.value); localStorage.setItem('dispatcher.driver', driverId); refresh(); };
+}
+
+function ago(iso) {
+  if (!iso) return '';
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  return s < 60 ? Math.round(s) + ' 秒前' : Math.round(s / 60) + ' 分钟前';
+}
+
+function drawShifts(d) {
+  if (!d.shifts.length) { $('#shifts').innerHTML = '<div class="empty">今日没有班次</div>'; return; }
+  $('#shifts').innerHTML = d.shifts.map(s => `
+    <div class="status-card" style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div><strong style="color:${s.color}">●</strong> ${s.route_name} · ${s.depart_time} 发车</div>
+        <span class="badge ${s.trip_status === 'running' ? 'accepted' : ''}">${s.trip_status === 'running' ? '运行中' : '未发车'}</span>
+      </div>
+      <div style="color:#8b9ab5;font-size:12px;margin-bottom:8px">当前：${s.stop_name || '未发车'} ${s.arrived_at ? '· ' + ago(s.arrived_at) : ''}</div>
+      ${s.trip_status !== 'running' ? `<button class="primary" onclick="start(${s.shift_id})">开始发车</button>` : ''}
+      <div style="margin-top:10px">
+        ${s.stops.map(st => `<button class="stop-btn ${st.id === s.current_stop_id ? 'current' : ''}" onclick="arrive(${st.id}, ${s.shift_id}, '${st.name}')">
+          ${st.seq}. ${st.name} ${st.id === s.current_stop_id ? '<small>← 当前位置</small>' : ''}</button>`).join('')}
+      </div>
+      <div class="hint">到站后点对应站点，调度端与乘客端立刻看到这辆车在这里（到站触发上报）。</div>
+    </div>`).join('');
+}
+
+function drawRides(rs) {
+  if (!rs.length) { $('#rides').innerHTML = '<div class="empty">暂无叫车</div>'; return; }
+  $('#rides').innerHTML = rs.map(r => `
+    <div class="ride">
+      <div class="hd"><strong>${r.rider} · ${r.people} 人</strong><span class="badge ${r.status}">${BADGE[r.status] || r.status}</span></div>
+      <div class="route">${r.from_name} → ${r.to_name} · 叫车于 ${r.created_at.slice(11, 19)}</div>
+      <div style="display:flex;gap:6px">
+        ${r.status === 'waiting' ? `<button class="primary sm" onclick="accept(${r.id})">接单</button>` : ''}
+        ${r.status === 'accepted' ? `<button class="ok sm" onclick="board(${r.id})">已接到乘客</button>` : ''}
+        ${r.status === 'boarded' ? `<button class="sm" onclick="done(${r.id})">送达完成</button>` : ''}
+      </div>
+    </div>`).join('');
+}
+
+async function post(url, body) {
+  const res = await fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (!res.ok) alert('操作失败：' + (await res.text()));
+  refresh();
+}
+const start = shiftId => post(`/api/driver/${driverId}/start`, { shift_id: shiftId });
+const arrive = (stopId, shiftId) => post(`/api/driver/${driverId}/arrive`, { stop_id: stopId, shift_id: shiftId });
+const accept = id => post(`/api/ride/${id}/accept`, { driver_id: driverId });
+const board = id => post(`/api/ride/${id}/board`);
+const done = id => post(`/api/ride/${id}/done`);
+
+async function refresh() {
+  try {
+    const d = await (await fetch(`/api/driver/${driverId}`)).json();
+    if (d.detail) return;
+    $('#shifts').querySelectorAll('.stop-btn');
+    drawShifts(d); drawRides(d.rides);
+  } catch (e) { console.error(e); }
+}
+
+loadDrivers().then(refresh);
+setInterval(refresh, 4000);
+</script>
+</body>
+</html>

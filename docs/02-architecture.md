@@ -1,102 +1,102 @@
-# 02 · 架构（初稿）
+# 02 · 架构（as-built，DEMO v0.1）
 
-**状态：初稿** ｜ 最后更新：2026-11-10
-
-> 原则：**最小工程量先出 DEMO，跑通再升级**（决策 D2）。以下选型都为"能在一台 NAS 上跑起来"服务，不是最终形态。
+**状态：与代码一致（2026-11-11）** ｜ 变更须先改本文档
 
 ## 1. 形态
 
-单体应用 + 单库 + 一个前端，Docker Compose 部署在 NAS 上。
+单体 FastAPI + SQLite 单文件 + 原生 JS 静态页，无构建步骤、无前端框架。
 
 ```
-┌──────────────────────────────────────────────┐
-│ 浏览器：调度端（桌面）/ 司机端（手机 H5）      │
-└───────────────┬──────────────────────────────┘
-                │ HTTP + WebSocket
-┌───────────────▼──────────────────────────────┐
-│ 后端：FastAPI（单体）                         │
-│  ├─ api/      REST：台账、排班、派单          │
-│  ├─ ws/       实时位置推送                    │
-│  ├─ services/ 业务规则：冲突检测、状态机       │
-│  └─ models/   ORM 模型                        │
-└───────────────┬──────────────────────────────┘
-                │
-       ┌────────▼─────────┐
-       │ SQLite → Postgres │  （阶段 1 SQLite，量级上来再迁）
-       └──────────────────┘
+浏览器（调度端 / 司机端 H5 / 乘客端 H5）
+        │  fetch JSON + 3s 轮询
+┌───────▼─────────────────────────┐
+│ FastAPI (app/main.py)           │
+│  ├─ REST API  /api/*            │
+│  ├─ 静态页    /dispatcher /driver /rider
+│  └─ 静态资源  /static            │
+├─────────────────────────────────┤
+│ SQLite (data/dispatcher.db)     │  WAL，单文件，随卷持久化
+└─────────────────────────────────┘
 ```
 
-## 2. 技术选型（草案）
-
-| 层 | 选型 | 理由 | 备选 |
-|---|---|---|---|
-| 后端 | Python 3.13 + FastAPI | 团队现有 Python 环境，迭代快，自带 OpenAPI | Node/Express |
-| 前端 | 先服务端渲染 + 少量 JS；复杂交互再上 Vue | 最小工程量优先 | React + Vite |
-| 地图 | 高德 JS API（国内可用性最好） | 与 Where2Go 项目已用同一套 | 腾讯地图 |
-| 实时 | WebSocket 推送位置（阶段 1） | 比轮询省流量、延迟低 | SSE / 短轮询 |
-| 存储 | SQLite（阶段 1）→ PostgreSQL + PostGIS | 先零运维，需要地理查询时再迁 | 直接 Postgres |
-| 部署 | Docker Compose，单机 | NAS 现成 | — |
-| 认证 | 用户名密码 + JWT，角色区分调度员/司机/管理员 | 司机用手机号登录 | OAuth |
-
-`【待确认】` 前端框架、地图供应商见 `01-requirements.md` 的 Q9 / Q10。
-
-## 3. 模块划分
+## 2. 目录
 
 ```
-app/
-├── main.py            # 应用入口、路由注册
-├── api/
-│   ├── vehicles.py    # 车辆台账
-│   ├── drivers.py     # 司机台账
-│   ├── routes.py      # 线路与站点
-│   ├── shifts.py      # 班次与排班
-│   ├── trips.py       # 行程实例与状态
-│   └── dispatch.py    # 派单
-├── ws/
-│   └── tracking.py    # 位置上报接入 + 订阅推送
-├── services/
-│   ├── scheduling.py  # 冲突检测、按周模板生成班次
-│   ├── assignment.py  # 指派与改派规则
-│   └── eta.py         # 到站预测（阶段 2）
-├── models/            # ORM
-└── static/            # 前端静态资源
+Dispatcher/
+├── app/
+│   ├── main.py        # 全部 REST 接口 + 页面路由
+│   └── db.py          # 建表、种子数据、每日 trip 生成
+├── static/
+│   ├── base.css       # 深色主题
+│   ├── map.js         # 地图渲染：腾讯地图 / 自绘示意图双实现
+│   ├── dispatcher.html
+│   ├── driver.html
+│   └── rider.html
+├── scripts/
+│   └── reset_demo.py  # 清库重播种（含自增序列重置）
+├── run.sh             # 本地启动（自动建 venv）
+├── Dockerfile / docker-compose.yml
+└── docs/
 ```
 
-## 4. 关键设计点
+## 3. 数据模型
 
-### 4.1 班次 vs 行程
-`Shift` 是**计划**（每周模板生成），`Trip` 是**实际发生**的一次运行（有真实发车/到站时间、延误、乘车人数）。
-排班改计划，行程只追加不改写——统计与追溯都以 `Trip` 为准。
+| 表 | 关键字段 | 说明 |
+|---|---|---|
+| `vehicles` | plate, kind, seats, status | 车牌/车型/座位 |
+| `drivers` | name, phone, vehicle_id | 司机与车辆一对一 |
+| `routes` | name, direction(loop), color | 线路 |
+| `stops` | route_id, seq, name, lat, lng | 站点，按 seq 排序成线路 |
+| `shifts` | route_id, vehicle_id, driver_id, depart_time | 计划班次（HH:MM） |
+| `trips` | shift_id, day, status, current_stop_id, arrived_at | **当天实际运行**；位置真相在 `current_stop_id + arrived_at` |
+| `ride_requests` | rider, from_stop_id, to_stop_id, people, status, vehicle_id, driver_id | 叫车单 |
+| `events` | ts, kind, detail | 事件日志，所有状态变更留痕 |
 
-### 4.2 实时位置
-- 司机端 H5 用 `navigator.geolocation` 定时上报，弱网时本地队列重试；后台时降频。
-- 服务端只保留最近 N 天明细（`PositionReport`），历史轨迹按需降采样归档。
-- 调度端 WebSocket 只订阅"当前可见范围内的在线车辆"，避免把全车队位置推给每个页面。
+设计要点：
+- **班次是计划，行程是实际**。排班改 `shifts`；位置/状态只写 `trips`，不覆盖历史。
+- **位置不建位置表**：到站触发的本质是"车辆当前所在的站点"，`trips.current_stop_id` 即位置；
+  连续轨迹上报（阶段 2 若要做）才需要独立的 `position_reports`。
+- 每天首次请求/启动时幂等生成当日 `trips`（`_ensure_today_trips`）。
 
-### 4.3 派单状态机
+## 4. 接口一览
 
-```
-created → assigned → accepted → en_route → arrived → completed
-   └──────────┴──────────→ cancelled
-```
-每次状态变更写一条 `DispatchEvent`（谁、何时、从什么到什么），用于留痕与纠纷追溯。
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | `/api/state` | 调度端全量状态：车辆位置、线路站点、班次、开放叫车单、事件、统计 |
+| GET | `/api/drivers` | 司机+车辆列表（Demo 代替登录） |
+| GET | `/api/driver/{id}` | 司机视图：今日班次（含站点）、相关叫车单 |
+| POST | `/api/driver/{id}/start` | 发车（可带 shift_id） |
+| POST | `/api/driver/{id}/arrive` | **到站上报**（stop_id + 可选 shift_id），校验站点属于该线路 |
+| GET | `/api/rider/options` | 线路+站点（供乘客选起终点） |
+| POST | `/api/ride` | 叫车 |
+| GET | `/api/ride/{id}` | 叫车单详情 + 接单车当前位置 |
+| POST | `/api/ride/{id}/accept` | 司机接单（body: driver_id） |
+| POST | `/api/ride/{id}/board` `/done` `/cancel` | 已接到 / 送达 / 取消 |
+| GET | `/health` | 看门狗探活 |
 
-### 4.4 冲突检测
-同一司机或同一车辆在时间窗重叠（含线路预计时长的缓冲）内不允许排两个班次；改派时同样校验。
+## 5. 前端实现
 
-## 5. 安全与权限
-
-- 角色权限：调度员可写台账与派单；司机只能看自己的班次与派单、上报位置；管理员全权。
-- 司机手机号、乘车人信息属个人信息，`【待确认】` 是否需要脱敏展示给非管理员。
-- 地图 key 不放前端静态文件，由后端 `/api/map-config` 下发（沿用既有项目做法）。
+- 三个静态页，原生 JS + `fetch`，无框架、无打包。
+- 调度端/司机端/乘客端均 3–4 秒轮询（神朱要求 5 秒内可见，轮询 3 秒有余量）。
+- **地图双实现**（`static/map.js`）：
+  - `TENCENT_MAP_KEY` 有值 → 加载腾讯地图 GL JS，画线路 `MultiPolyline` + 站点/车辆 `MultiMarker`，
+    轮询时只 `setGeometries` 更新车辆层，避免地图重建闪烁；
+  - 无 key → **自绘 SVG 示意图**（经纬度线性投影 + 网格 + 线路折线 + 车辆标签），DEMO 默认可跑。
+- 颜色：线路色来自 `routes.color`；车辆标签显示车牌尾号 + 当前站。
 
 ## 6. 部署
 
-`docker-compose.yml`：一个 `app` 服务（uvicorn）+ 一个 `db`（阶段 1 可省，用挂载卷里的 SQLite 文件）+ 反向代理（如已有）。
-数据卷持久化到 NAS；每日 SQLite/Postgres 备份到 NAS 另一块盘。
+- 容器内 `0.0.0.0:8010`，宿主映射 `8010:8010`（已在 Hermes 容器 compose 里）。
+- `docker-compose.yml` 为独立部署形态（`./data` 挂卷持久化，`TENCENT_MAP_KEY` 走环境变量）。
+- 容器内由 cron 看门狗 `ensure-dispatcher.sh`（每 10 分钟）探活并拉起，日志在 `logs/server.log`。
 
-## 7. 未决技术问题
+## 7. 已知限制 / 阶段 2 再改
 
-- 是否需要 PostGIS（取决于是否有"附近车辆""电子围栏"需求）。
-- 司机端长期后台定位在 iOS Safari 上不可靠，若真要持续上报需考虑小程序或原生壳。
-- 多调度员并发改同一派单的冲突处理（乐观锁 version 字段）。
+| 限制 | 影响 | 后续 |
+|---|---|---|
+| 无登录鉴权，司机靠 URL/下拉切换 | 任何人可操作 | 加手机号+验证码登录、角色 JWT |
+| 无实时通道，靠轮询 | 3s 延迟、请求数随页面数线性增长 | 换 WebSocket/SSE multicast |
+| 无 ETA 计算 | 乘客只看到"车在 X 站" | 按历史到站间隔估 ETA |
+| 台账无编辑界面 | 改线路/车辆要改种子或库 | 补 CRUD 表单 + 地图上画线路（Q5） |
+| SQLite 单文件 | 并发写弱 | 量级上来迁 Postgres |
+| 小程序未做 | 司机需开浏览器 | 用微信 JS-SDK 或 Taro 复用接口 |

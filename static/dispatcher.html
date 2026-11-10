@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dispatcher · 调度端</title>
+<link rel="stylesheet" href="/static/base.css">
+</head>
+<body>
+<header>
+  <h1>Dispatcher <span style="color:#8b9ab5;font-weight:400">· 调度端</span></h1>
+  <span class="clock" id="clock">--:--:--</span>
+  <nav class="nav">
+    <a href="/dispatcher" class="active">调度端</a>
+    <a href="/driver">司机端</a>
+    <a href="/rider">乘客端</a>
+  </nav>
+</header>
+
+<main>
+  <div class="chips" id="stats"></div>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>车辆实时位置（到站上报驱动）</h2>
+      <div id="mapWrap"></div>
+      <div class="hint" id="mapHint"></div>
+    </section>
+
+    <section class="card">
+      <h2>车队</h2>
+      <div id="vehicles"></div>
+    </section>
+  </div>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>今日班次</h2>
+      <div style="overflow:auto"><table id="shifts"><thead>
+        <tr><th>发车</th><th>线路</th><th>车辆</th><th>司机</th><th>当前位置</th><th>状态</th></tr>
+      </thead><tbody></tbody></table></div>
+    </section>
+
+    <section class="card">
+      <h2>待处理叫车</h2>
+      <div id="rides"></div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>事件日志</h2>
+    <div class="log" id="log"></div>
+  </section>
+</main>
+
+<script src="/static/map.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const pad = n => String(n).padStart(2, '0');
+const BADGE = { waiting: '等待接单', accepted: '已接单', boarded: '已上车', done: '已送达', cancelled: '已取消' };
+const TRIP = { waiting: '未发车', running: '运行中', done: '已完成' };
+let mapMode = 'schematic';
+
+function ago(iso) {
+  if (!iso) return '';
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  return s < 60 ? Math.round(s) + ' 秒前' : Math.round(s / 60) + ' 分钟前';
+}
+
+function drawStats(st) {
+  $('#stats').innerHTML = `
+    <span class="chip"><b>${st.vehicles_online}/${st.vehicles_total}</b>车辆已上报位置</span>
+    <span class="chip"><b>${st.rides_waiting}</b>待接单</span>
+    <span class="chip"><b>${st.rides_active}</b>进行中叫车</span>
+    <span class="chip"><b>${st.shifts_done}/${st.shifts_total}</b>班次已完成</span>`;
+}
+
+function drawVehicles(vs) {
+  if (!vs.length) { $('#vehicles').innerHTML = '<div class="empty">暂无车辆</div>'; return; }
+  $('#vehicles').innerHTML = vs.map(v => `
+    <div class="veh" style="border-left-color:${v.color}">
+      <span class="dot ${v.arrived_at ? 'on' : ''}"></span>
+      <div>
+        <div class="plate">${v.plate} <span class="meta">· ${v.kind} · ${v.seats} 座</span></div>
+        <div class="meta">${v.driver || '未指派'} ${v.route_name ? '· ' + v.route_name : ''}</div>
+      </div>
+      <div class="pos">
+        <div>${v.arrived_at ? (v.stop_name || '已到站') : '未发车'}</div>
+        <div class="meta">${v.arrived_at ? ago(v.arrived_at) : '—'}</div>
+      </div>
+    </div>`).join('');
+}
+
+function drawRides(rs) {
+  if (!rs.length) { $('#rides').innerHTML = '<div class="empty">当前没有叫车请求</div>'; return; }
+  $('#rides').innerHTML = rs.map(r => `
+    <div class="ride">
+      <div class="hd">
+        <strong>${r.rider} · ${r.people} 人</strong>
+        <span class="badge ${r.status}">${BADGE[r.status] || r.status}</span>
+      </div>
+      <div class="route">${r.from_name} → ${r.to_name} · ${r.plate ? r.plate + ' / ' + (r.driver_name || '') : '未派车'}</div>
+      <div style="display:flex;gap:6px">
+        ${r.status === 'waiting' ? `<button class="sm" onclick="assign(${r.id})">指派车辆</button>` : ''}
+        <button class="sm" onclick="cancel(${r.id})">取消</button>
+      </div>
+    </div>`).join('');
+}
+
+function drawShifts(ss) {
+  $('#shifts tbody').innerHTML = ss.map(s => `
+    <tr>
+      <td>${s.depart_time}</td>
+      <td><span style="color:${s.color}">●</span> ${s.route_name}</td>
+      <td>${s.plate}</td><td>${s.driver_name}</td>
+      <td>${s.stop_name || '—'} <span class="meta" style="color:#8b9ab5">${s.arrived_at ? ago(s.arrived_at) : ''}</span></td>
+      <td>${TRIP[s.trip_status] || s.trip_status}</td>
+    </tr>`).join('') || '<tr><td colspan="6" class="empty">暂无班次</td></tr>';
+}
+
+function drawLog(evs) {
+  $('#log').innerHTML = evs.map(e => `<div>[${e.ts.slice(11, 19)}] <b style="color:#cfe0ff">${e.kind}</b> ${e.detail}</div>`).join('');
+}
+
+async function assign(id) {
+  const opt = prompt('指派给哪位司机？（输入司机 ID：1 张伟 / 2 李强 / 3 王磊 / 4 陈静）', '1');
+  if (!opt) return;
+  const res = await fetch(`/api/ride/${id}/accept`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ driver_id: Number(opt) })
+  });
+  if (!res.ok) alert('指派失败：' + (await res.text()));
+  refresh();
+}
+async function cancel(id) {
+  await fetch(`/api/ride/${id}/cancel`, { method: 'POST' });
+  refresh();
+}
+
+async function refresh() {
+  try {
+    const st = await (await fetch('/api/state')).json();
+    drawStats(st.stats); drawVehicles(st.vehicles); drawRides(st.rides); drawShifts(st.shifts); drawLog(st.events);
+    mapMode = await renderMap($('#mapWrap'), st);
+    $('#mapHint').textContent = mapMode === 'tencent'
+      ? '腾讯地图 · 车辆位置来自司机到站上报'
+      : '示意图模式（未配置 TENCENT_MAP_KEY）。车辆标签 = 该车最近一次到站上报的位置；配置 key 后自动切换真实地图。';
+  } catch (e) {
+    $('#mapHint').textContent = '刷新失败：' + e.message;
+  }
+}
+
+setInterval(() => { $('#clock').textContent = new Date().toLocaleTimeString('zh-CN', { hour12: false }); }, 1000);
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

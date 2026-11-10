@@ -1,0 +1,12 @@
+services:
+  dispatcher:
+    build: .
+    container_name: dispatcher
+    restart: unless-stopped
+    ports:
+      - "8010:8010"
+    volumes:
+      - ./data:/app/data
+    environment:
+      # 腾讯位置服务 key（WebServiceAPI + 地图 JS API）；留空则用自绘示意图
+      - TENCENT_MAP_KEY=${TENCENT_MAP_KEY:-}

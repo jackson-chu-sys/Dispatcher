@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dispatcher · 乘客端</title>
+<link rel="stylesheet" href="/static/base.css">
+<style>main{max-width:640px}.big{font-size:20px}</style>
+</head>
+<body>
+<header>
+  <h1>Dispatcher <span style="color:#8b9ab5;font-weight:400">· 乘客端</span></h1>
+  <nav class="nav">
+    <a href="/dispatcher">调度端</a>
+    <a href="/driver">司机端</a>
+    <a href="/rider" class="active">乘客端</a>
+  </nav>
+</header>
+
+<main>
+  <section class="card" id="formCard">
+    <h2>叫车</h2>
+    <div class="field"><label>我在哪（起点）</label><select id="from"></select></div>
+    <div class="field"><label>我要去（终点）</label><select id="to"></select></div>
+    <div class="row">
+      <div class="field" style="flex:1"><label>人数</label><input id="people" type="number" min="1" max="8" value="1"></div>
+      <div class="field" style="flex:2"><label>称呼（可不填）</label><input id="rider" placeholder="如：李女士"></div>
+    </div>
+    <button class="primary" style="width:100%;padding:11px" onclick="call()">叫车</button>
+    <div class="hint">固定站点上车：请在站点等车，车到站时会显示在下面。</div>
+  </section>
+
+  <section class="card" id="statusCard" style="display:none">
+    <h2>我的行程</h2>
+    <div id="rideStatus"></div>
+  </section>
+</main>
+
+<script src="/static/map.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const BADGE = { waiting: '等待接单', accepted: '司机已接单，正在过来', boarded: '已上车', done: '已送达', cancelled: '已取消' };
+let rideId = Number(localStorage.getItem('dispatcher.ride') || 0);
+
+function ago(iso) {
+  if (!iso) return '';
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  return s < 60 ? Math.round(s) + ' 秒前' : Math.round(s / 60) + ' 分钟前';
+}
+
+async function loadOptions() {
+  const data = await (await fetch('/api/rider/options')).json();
+  const opts = data.routes.flatMap(r => (r.stops || []).map(s => ({ ...s, route: r.name })));
+  const html = opts.map(o => `<option value="${o.id}">${o.route} · ${o.name}</option>`).join('');
+  $('#from').innerHTML = html;
+  $('#to').innerHTML = html;
+  if (opts.length > 1) $('#to').value = opts[1].id;
+}
+
+async function call() {
+  const body = {
+    from_stop_id: Number($('#from').value),
+    to_stop_id: Number($('#to').value),
+    people: Number($('#people').value || 1),
+    rider: ($('#rider').value || '乘客').slice(0, 20),
+  };
+  const res = await fetch('/api/ride', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!res.ok) { alert('叫车失败：' + (await res.text())); return; }
+  const data = await res.json();
+  rideId = data.ride_id;
+  localStorage.setItem('dispatcher.ride', rideId);
+  refresh();
+}
+
+async function cancelRide() {
+  await fetch(`/api/ride/${rideId}/cancel`, { method: 'POST' });
+  localStorage.removeItem('dispatcher.ride');
+  rideId = 0;
+  refresh();
+}
+
+let mapEl = null;
+async function refresh() {
+  if (!rideId) { $('#statusCard').style.display = 'none'; $('#formCard').style.display = ''; return; }
+  const res = await fetch(`/api/ride/${rideId}`);
+  if (!res.ok) { localStorage.removeItem('dispatcher.ride'); rideId = 0; return; }
+  const { ride, vehicle } = await res.json();
+  $('#formCard').style.display = 'none';
+  $('#statusCard').style.display = '';
+  const active = ['waiting', 'accepted', 'boarded'].includes(ride.status);
+  $('#rideStatus').innerHTML = `
+    <div class="big" style="margin-bottom:6px">${ride.from_name} → ${ride.to_name}</div>
+    <div class="hint" style="margin:0 0 10px">${ride.rider} · ${ride.people} 人 · ${BADGE[ride.status] || ride.status}</div>
+    ${vehicle ? `<div class="status-card">
+        <div style="color:#8b9ab5;font-size:12px">接你的车</div>
+        <div style="font-size:16px;font-weight:600;margin:3px 0">${vehicle.plate} · ${vehicle.kind}</div>
+        <div>当前位置：<b>${vehicle.stop_name || '尚未发车'}</b> <span class="hint">${vehicle.arrived_at ? ago(vehicle.arrived_at) + '上报' : ''}</span></div>
+        <div class="hint">司机：${ride.driver_name || '—'}</div>
+      </div>` : '<div class="status-card">还没派车，调度正在安排…</div>'}
+    <div id="riderMap" style="margin-top:10px;background:#141b29;border-radius:8px;min-height:240px"></div>
+    ${ride.status === 'done' ? `<div class="hint" style="margin-top:10px">已送达，行程结束 🎉</div>
+       <button style="margin-top:8px" onclick="reset()">再叫一次</button>`
+      : `<button style="margin-top:10px" onclick="cancelRide()" ${active ? '' : 'disabled'}>取消叫车</button>`}
+  `;
+  const st = await (await fetch('/api/state')).json();
+  if (vehicle) {
+    st.rides = [];
+    mapEl = await renderMap($('#riderMap'), { ...st, vehicles: [{ ...vehicle, driver: ride.driver_name, color: '#2f6fed' }] });
+  }
+}
+
+function reset() {
+  localStorage.removeItem('dispatcher.ride');
+  rideId = 0;
+  refresh();
+}
+
+loadOptions().then(refresh);
+setInterval(refresh, 4000);
+</script>
+</body>
+</html>
