@@ -58,3 +58,10 @@ label{display:block;font-size:12px;color:var(--muted);margin:0 0 4px}
 .big{font-size:22px;font-weight:600}
 .status-card{padding:14px;border-radius:10px;background:var(--panel2);border:1px solid var(--line)}
 .empty{color:var(--muted);font-size:13px;padding:8px 0}
+
+/* iOS 安全区（刘海屏）与微信内 H5 触控优化 */
+body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
+header{padding-top:calc(12px + env(safe-area-inset-top))}
+main{padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+input,select{font-size:16px}  /* 防 iOS 聚焦自动放大 */

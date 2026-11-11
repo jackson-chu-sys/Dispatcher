@@ -26,8 +26,9 @@
 ```
 Dispatcher/
 ├── app/
-│   ├── main.py        # 全部 REST 接口 + 页面路由
-│   └── db.py          # 建表、种子数据、每日 trip 生成
+│   ├── main.py        # 全部 REST 接口 + 页面路由 + WS 广播
+│   ├── notify.py      # 通知层：企业微信群机器人 + watchdog 巡检（超时/晚点/未发车）
+│   └── db.py          # 建表、迁移、种子数据、每日 trip 生成
 ├── static/
 │   ├── base.css       # 深色主题
 │   ├── auth.js        # token 存取、鉴权 fetch、页面守卫、WS Live 订阅
@@ -59,6 +60,7 @@ Dispatcher/
 | `ride_requests` | rider, from_stop_id, to_stop_id, people, status, vehicle_id, driver_id | 叫车单 |
 | `arrivals` | trip_id, stop_id, ts | **到站明细**（每次上报追加一行，轨迹回放数据源） |
 | `events` | ts, kind, detail | 事件日志，所有状态变更留痕 |
+| `config` | key, value | 运行时配置（通知开关/webhook/阈值），台账页可改 |
 
 设计要点：
 - **班次是计划，行程是实际**。排班改 `shifts`；位置/状态只写 `trips`，不覆盖历史。
@@ -92,6 +94,9 @@ Dispatcher/
 | GET | `/api/trips/today` | token | 今日行程列表（回放选择用） |
 | GET | `/api/trip/{id}/track` | token | 到站序列 + 线路站点（轨迹回放） |
 | GET | `/api/events?limit=` | token | 事件日志（全部） |
+| GET/PUT | `/api/notify/conf` | 调度 | 通知配置（开关/webhook/超时阈值/晚点阈值） |
+| GET | `/api/notify/status` | 调度 | 通知通道状态 |
+| POST | `/api/notify/test` | 调度 | 发送测试消息（同步返回真实结果） |
 | GET | `/health` | 公开 | 看门狗探活 |
 
 ## 5. 前端实现

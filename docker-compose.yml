@@ -13,3 +13,6 @@ services:
       - AMAP_SECURITY_CODE=${AMAP_SECURITY_CODE:-}
       - AMAP_WEB_KEY=${AMAP_WEB_KEY:-}
       - DISPATCHER_PASSWORD=${DISPATCHER_PASSWORD:-}
+      # 通知（企业微信群机器人 webhook，多个逗号分隔；留空则通知待命）
+      - WECOM_WEBHOOK_URL=${WECOM_WEBHOOK_URL:-}
+      - NOTIFY_ENABLED=${NOTIFY_ENABLED:-1}

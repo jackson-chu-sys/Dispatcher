@@ -28,6 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import db
+from . import notify
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -399,7 +400,13 @@ async def _broadcaster() -> None:
 @app.on_event("startup")
 def _startup() -> None:
     db.init_db()
-    asyncio.get_event_loop().create_task(_broadcaster())
+    loop = asyncio.get_event_loop()
+    loop.create_task(_broadcaster())
+    loop.create_task(notify.watchdog_loop(30))
+    if notify.is_configured():
+        print("[notify] 企业微信群机器人通知已启用")
+    else:
+        print("[notify] 未配置 WECOM_WEBHOOK_URL，通知功能待命")
     if AMAP_JS_KEY:
         print("[map] 高德 JS key 已配置")
     else:
@@ -649,9 +656,15 @@ def api_create_ride(body: RideIn):
         db.log_event(conn, "ride_new", f"{body.rider} 叫车 #{cur.lastrowid}")
         conn.commit()
         hub.bump()
-        return {"ok": True, "ride_id": cur.lastrowid}
+        ride_id = cur.lastrowid
+        names = {row["id"]: row["name"] for row in
+                 rows(conn, "SELECT id, name FROM stops WHERE id IN (?,?)",
+                      (body.from_stop_id, body.to_stop_id))}
     finally:
         conn.close()
+    notify.notify_new_ride(ride_id, body.rider, max(1, body.people),
+                           names.get(body.from_stop_id, "?"), names.get(body.to_stop_id, "?"))
+    return {"ok": True, "ride_id": ride_id}
 
 
 def _ride_detail(conn, ride_id: int) -> dict:
@@ -1297,4 +1310,57 @@ def page_login():
 @app.get("/health")
 def health():
     return {"ok": True, "now": db.now_iso(), "version": app.version,
-            "map": "amap" if AMAP_JS_KEY else "schematic"}
+            "map": "amap" if AMAP_JS_KEY else "schematic",
+            "notify": "wecom" if notify.is_configured() else "off"}
+
+
+@app.get("/api/notify/status")
+def api_notify_status(user: dict = Depends(require_dispatcher)):
+    return {"enabled": notify._cfg()["enabled"], "configured": notify.is_configured(),
+            "channels": {"wecom": "已配置" if notify.is_configured() else "未配置（台账界面或 WECOM_WEBHOOK_URL）",
+                         "mp_template": "预留（等 R2 认证主体）",
+                         "miniprogram": "预留（等 R2 认证主体）"}}
+
+
+class NotifyConfIn(BaseModel):
+    enabled: bool = True
+    wecom_webhook: str = ""
+    ride_timeout_sec: int = Field(default=180, ge=30, le=3600)
+    late_min: int = Field(default=5, ge=1, le=60)
+
+
+@app.get("/api/notify/conf")
+def api_notify_conf(user: dict = Depends(require_dispatcher)):
+    conf = notify._db_conf()
+    return {
+        "enabled": conf.get("notify.enabled", "1") not in ("0", "false"),
+        "wecom_webhook": conf.get("notify.wecom_webhook", ""),
+        "ride_timeout_sec": int(conf.get("notify.ride_timeout_sec", "180")),
+        "late_min": int(conf.get("notify.late_min", "5")),
+    }
+
+
+@app.put("/api/notify/conf")
+def api_notify_conf_update(body: NotifyConfIn, user: dict = Depends(require_dispatcher)):
+    conn = db.connect()
+    try:
+        kv = {
+            "notify.enabled": "1" if body.enabled else "0",
+            "notify.wecom_webhook": body.wecom_webhook.strip(),
+            "notify.ride_timeout_sec": str(body.ride_timeout_sec),
+            "notify.late_min": str(body.late_min),
+        }
+        for k, v in kv.items():
+            conn.execute("INSERT INTO config(key, value) VALUES(?,?) "
+                         "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (k, v))
+        db.log_event(conn, "crud", f"{user['n']} 更新通知配置")
+        conn.commit()
+    finally:
+        conn.close()
+    notify.invalidate_conf()
+    return {"ok": True}
+
+
+@app.post("/api/notify/test")
+def api_notify_test(user: dict = Depends(require_dispatcher)):
+    return notify.notify_test()

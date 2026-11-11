@@ -20,7 +20,7 @@
 cat /mnt/projects/Dispatcher/data/.dispatcher_pass
 ```
 
-> 也可以在 `.env` 里设 `DISPATCHER_PASSWORD=*** 然后重启服务，用固定口令。
+> 也可以在 `.env` 里设 `DISPATCHER_PASSWORD` 为你自己的固定口令，然后重启服务。
 > token 有效期 12 小时，过期自动跳回登录页。
 
 打不开时依次排查：
@@ -61,6 +61,19 @@ docker compose up -d --build
 
 看门狗：cron `dispatcher-demo-watchdog`（每 10 分钟）跑 `/opt/data/scripts/ensure-dispatcher.sh`，
 探活 `127.0.0.1:8000/health`，挂了自动拉起，健康时静默。
+
+## 3.5 通知设置（企业微信群机器人）
+
+台账 `/admin` → 「通知设置」tab：填企业微信群机器人的 webhook（群设置 → 群机器人 → 添加），
+点「发送测试消息」验证，保存后生效。推送内容：
+
+- 🚐 新叫车提醒（乘客叫车即推群）
+- ⚠️ 叫车超时未接单告警（默认 3 分钟，可调）
+- ⏰ 班次晚点告警（发车晚于计划 5 分钟以上，可调）
+- ❗ 过点未发车告警
+
+未配置 webhook 时通知静默待命，不影响任何功能。乘客/司机的个人微信推送需要认证主体
+（服务号/小程序，R2 拍板后接入，接口已预留）。
 
 ## 4. 这一版新增（v0.1 → v0.2）
 

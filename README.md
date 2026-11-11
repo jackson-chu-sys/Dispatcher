@@ -33,7 +33,7 @@ Docker：`docker compose up -d --build`（宿主端口 8000 → 容器 8010，�
 
 ## 技术栈
 
-FastAPI + SQLite（单文件，WAL）+ 原生 JS 静态页，无前端构建；地图用高德 JS API v2.0（`AMAP_JS_KEY` + `AMAP_SECURITY_CODE`，见 `.env.example`），无 key 时降级为自绘 SVG 示意图。
+FastAPI + SQLite（单文件，WAL）+ 原生 JS 静态页，无前端构建；地图用高德 JS API v2.0（`AMAP_JS_KEY` + `AMAP_SECURITY_CODE`，见 `.env.example`），无 key 时降级为自绘 SVG 示意图；通知走企业微信群机器人（台账页可配），个人微信推送预留待 R2。
 
 ## License
 

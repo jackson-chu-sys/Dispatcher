@@ -39,6 +39,7 @@
       <button data-t="routes" onclick="tab('routes')">线路/站点</button>
       <button data-t="draw" onclick="tab('draw')">地图画线路</button>
       <button data-t="shifts" onclick="tab('shifts')">排班</button>
+      <button data-t="notify" onclick="tab('notify')">通知设置</button>
       <button data-t="events" onclick="tab('events')">事件日志</button>
     </div>
   </section>
@@ -127,6 +128,26 @@
       <tr><th>ID</th><th>发车</th><th>时长</th><th>线路</th><th>车辆</th><th>司机</th><th></th></tr></thead><tbody></tbody></table></div>
   </section>
 
+  <!-- 通知设置 -->
+  <section class="card pane" id="pane-notify">
+    <h2>通知设置（企业微信群机器人）</h2>
+    <form class="inline" onsubmit="return saveNotify(event)" style="flex-direction:column;align-items:stretch">
+      <div class="field"><label style="display:flex;align-items:center;gap:6px;font-size:14px;color:var(--text)">
+        <input type="checkbox" id="n-enabled"> 启用通知</label></div>
+      <div class="field"><label>企业微信群机器人 Webhook（群设置 → 群机器人 → 添加后复制；多个用英文逗号分隔）</label>
+        <input id="n-webhook" placeholder="粘贴群机器人 webhook 地址" style="width:100%;max-width:640px"></div>
+      <div class="row" style="display:flex;gap:14px;flex-wrap:wrap">
+        <div class="field"><label>叫车超时未接单告警（秒）</label><input id="n-timeout" type="number" min="30" max="3600" value="180" style="width:130px"></div>
+        <div class="field"><label>发车晚点告警阈值（分钟）</label><input id="n-late" type="number" min="1" max="60" value="5" style="width:130px"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="primary">保存</button>
+        <button type="button" onclick="testNotify()">发送测试消息</button>
+      </div>
+      <div class="hint" id="notifyStatus">通知内容：新叫车提醒、超时未接单告警、班次晚点/未发车告警。乘客/司机个人微信通知需认证主体（服务号/小程序），已预留接口。</div>
+    </form>
+  </section>
+
   <!-- 事件 -->
   <section class="card pane" id="pane-events">
     <h2>事件日志（全部）</h2>
@@ -146,6 +167,7 @@ function tab(name) {
   $$('.pane').forEach(p => p.classList.toggle('on', p.id === 'pane-' + name));
   if (name === 'draw') initDrawMap();
   if (name === 'events') loadEvents();
+  if (name === 'notify') loadNotify();
 }
 if (location.hash === '#events') setTimeout(() => tab('events'), 100);
 
@@ -378,6 +400,41 @@ function drawShifts() {
 async function loadEvents() {
   const evs = await api('/api/events?limit=500');
   $('#allEvents').innerHTML = evs.map(e => `<div>[${e.ts.replace('T', ' ').slice(0, 19)}] <b style="color:#cfe0ff">${e.kind}</b> ${e.detail}</div>`).join('');
+}
+
+/* ---------------------------------------------------------- 通知设置 */
+async function loadNotify() {
+  try {
+    const c = await api('/api/notify/conf');
+    $('#n-enabled').checked = !!c.enabled;
+    $('#n-webhook').value = c.wecom_webhook || '';
+    $('#n-timeout').value = c.ride_timeout_sec;
+    $('#n-late').value = c.late_min;
+    const st = await api('/api/notify/status');
+    $('#notifyStatus').textContent = '当前状态：' + (st.configured ? '✅ 已配置 webhook，通知生效中' : '⚪ 未配置 webhook（保存后生效）')
+      + ' · 通知内容：新叫车、超时未接单告警、班次晚点/未发车告警。乘客/司机个人微信通知需认证主体（R2），已预留。';
+  } catch (e) { console.error(e); }
+}
+async function saveNotify(e) {
+  e.preventDefault();
+  const body = JSON.stringify({
+    enabled: $('#n-enabled').checked,
+    wecom_webhook: $('#n-webhook').value.trim(),
+    ride_timeout_sec: Number($('#n-timeout').value) || 180,
+    late_min: Number($('#n-late').value) || 5,
+  });
+  if (await tryApi(() => api('/api/notify/conf', { method: 'PUT', body }))) {
+    alert('已保存');
+    loadNotify();
+  }
+  return false;
+}
+async function testNotify() {
+  try {
+    const r = await api('/api/notify/test', { method: 'POST' });
+    if (r.configured === false) { alert('还没配置 webhook，先填写并保存'); return; }
+    alert(r.sent > 0 ? `测试消息已发送（${r.sent} 个机器人）` : '发送失败：' + JSON.stringify(r.errors));
+  } catch (e) { alert('失败：' + e.message); }
 }
 
 async function loadAll() {

@@ -99,3 +99,17 @@
 - 决策：`/admin` 单页承载车辆/司机/线路/站点/班次全部 CRUD；
   画线路 = 高德地图上按行车顺序点选坐标 → 命名 → `POST /api/stops/batch` 批量写入。
   删除保护：已排班的车辆/司机/线路、有进行中叫车单的站点/线路不可删（409）。
+
+## D17 · 通知通道：企业微信群机器人先行，个人微信等 R2
+- 日期：2026-11-12 ｜ 状态：已采纳
+- 背景：神朱选微信通知方向，但乘客/司机个人微信推送（服务号模板消息/小程序订阅消息）
+  必须有认证主体（R2 未拍板）。先把**不依赖 R2** 的部分做掉。
+- 决策：`app/notify.py` 统一通知层；当前唯一落地通道=**企业微信群机器人 webhook**
+  （零认证，群设置里加机器人即可，台账页「通知设置」tab 可配可测）。
+  后台 watchdog 每 30s 巡检：叫车超时未接单（默认 180s）、班次晚点（默认 5min）、过点未发车。
+  新叫车实时推群。所有通知带 dedup_key 去重限流，失败不影响业务（daemon 线程异步发）。
+- 配置存储：`config` 表（notify.enabled / notify.wecom_webhook / notify.ride_timeout_sec / notify.late_min），
+  环境变量 WECOM_WEBHOOK_URL 作为兜底；改配置即时生效（invalidate 缓存）。
+- 预留：notify.py 里 send_wecom* 即通道接口，R2 拍板后加 mp_template / miniprogram 通道，
+  业务调用点（notify_new_ride 等）不用改。
+
