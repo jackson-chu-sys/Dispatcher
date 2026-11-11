@@ -8,5 +8,8 @@ services:
     volumes:
       - ./data:/app/data
     environment:
-      # 腾讯位置服务 key（WebServiceAPI + 地图 JS API）；留空则用自绘示意图
-      - TENCENT_MAP_KEY=${TENCENT_MAP_KEY:-}
+      # 高德地图（JS API key + 安全密钥）；留空则用自绘示意图
+      - AMAP_JS_KEY=${AMAP_JS_KEY:-}
+      - AMAP_SECURITY_CODE=${AMAP_SECURITY_CODE:-}
+      - AMAP_WEB_KEY=${AMAP_WEB_KEY:-}
+      - DISPATCHER_PASSWORD=${DISPATCHER_PASSWORD:-}

@@ -15,7 +15,7 @@ sys.path.insert(0, BASE)
 
 from app import db  # noqa: E402
 
-TABLES = ["ride_requests", "trips", "events", "shifts", "stops", "routes", "drivers", "vehicles"]
+TABLES = ["ride_requests", "trips", "arrivals", "events", "shifts", "stops", "routes", "drivers", "vehicles"]
 
 
 def main() -> None:

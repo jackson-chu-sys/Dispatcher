@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dispatcher · 登录</title>
+<link rel="stylesheet" href="/static/base.css">
+<style>
+  body{display:flex;align-items:center;justify-content:center;min-height:100vh}
+  .login-card{width:min(380px,92vw)}
+  .tabs{display:flex;gap:8px;margin-bottom:14px}
+  .tabs button{flex:1;padding:9px}
+  .tabs button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .err{color:var(--bad);font-size:13px;min-height:20px;margin-top:8px}
+</style>
+</head>
+<body>
+<section class="card login-card">
+  <h2 style="font-size:16px;color:var(--text)">Dispatcher 登录</h2>
+  <div class="tabs">
+    <button id="tabDriver" class="on" onclick="switchTab('driver')">司机（手机号）</button>
+    <button id="tabDispatcher" onclick="switchTab('dispatcher')">调度员（口令）</button>
+  </div>
+  <div id="driverForm">
+    <label>登记手机号</label>
+    <input id="phone" type="tel" placeholder="如 13800000001" style="width:100%" autocomplete="tel">
+  </div>
+  <div id="dispatcherForm" style="display:none">
+    <label>调度口令</label>
+    <input id="password" type="password" style="width:100%" autocomplete="current-password">
+  </div>
+  <button class="primary" style="width:100%;margin-top:14px;padding:10px" onclick="login()">登录</button>
+  <div class="err" id="err"></div>
+  <div class="hint" style="margin-top:10px">乘客叫车无需登录：<a href="/rider">直接进入乘客端 →</a></div>
+</section>
+<script src="/static/auth.js"></script>
+<script>
+let role = 'driver';
+function switchTab(r) {
+  role = r;
+  document.getElementById('tabDriver').classList.toggle('on', r === 'driver');
+  document.getElementById('tabDispatcher').classList.toggle('on', r === 'dispatcher');
+  document.getElementById('driverForm').style.display = r === 'driver' ? '' : 'none';
+  document.getElementById('dispatcherForm').style.display = r === 'dispatcher' ? '' : 'none';
+  document.getElementById('err').textContent = '';
+}
+async function login() {
+  const body = { role, phone: document.getElementById('phone').value, password: document.getElementById('password').value };
+  try {
+    const data = await Auth.api('/api/login', { method: 'POST', body: JSON.stringify(body) }, true);
+    Auth.save(data.token, data.user);
+    const next = new URLSearchParams(location.search).get('next');
+    location.href = next || (data.user.role === 'dispatcher' ? '/dispatcher' : '/driver');
+  } catch (e) {
+    document.getElementById('err').textContent = e.message;
+  }
+}
+document.addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+</script>
+</body>
+</html>

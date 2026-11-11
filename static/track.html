@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dispatcher · 轨迹回放</title>
+<link rel="stylesheet" href="/static/base.css">
+<style>
+  #trackMap{height:520px;background:#141b29;border-radius:8px}
+  .ctrl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
+  .tl{display:flex;gap:4px;flex-wrap:wrap;margin-top:8px}
+  .tl button{padding:4px 10px;font-size:12px}
+  .tl button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+</style>
+</head>
+<body>
+<header>
+  <h1>Dispatcher <span style="color:#8b9ab5;font-weight:400">· 历史轨迹回放</span></h1>
+  <nav class="nav">
+    <a href="/dispatcher">调度端</a>
+    <a href="/admin">台账</a>
+    <a href="/board">看板</a>
+    <a href="/track" class="active">轨迹</a>
+    <a href="#" onclick="Auth.logout();return false">退出</a>
+  </nav>
+</header>
+
+<main>
+  <section class="card">
+    <h2>选择今日行程</h2>
+    <select id="tripSel" style="width:100%;max-width:520px"></select>
+    <div class="ctrl">
+      <button class="primary" id="playBtn" onclick="togglePlay()">▶ 回放</button>
+      <button onclick="step(-1)">◀ 上一站</button>
+      <button onclick="step(1)">下一站 ▶</button>
+      <span class="meta" id="playInfo" style="color:#8b9ab5"></span>
+    </div>
+    <div class="tl" id="timeline"></div>
+  </section>
+
+  <section class="card">
+    <div id="trackMap"></div>
+    <div class="hint" id="trackHint">位置明细来自司机「到站上报」，回放展示车辆逐站移动过程。</div>
+  </section>
+</main>
+
+<script src="/static/auth.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+if (!Auth.guard(['dispatcher'])) throw new Error('need login');
+
+let trackData = null, mapObj = null, overlays = [], playTimer = null, curIdx = -1;
+let amapJsKey = '', amapSec = '';
+
+async function loadTrips() {
+  const st = await (await fetch('/api/state')).json();
+  amapJsKey = (st.map || {}).js_key || '';
+  amapSec = (st.map || {}).security_code || '';
+  const trips = await Auth.api('/api/trips/today');
+  $('#tripSel').innerHTML = trips.map(t =>
+    `<option value="${t.id}">${t.depart_time} ${t.route_name} · ${t.plate} · ${t.driver_name}${t.started_at ? '（已发车 ' + t.started_at.slice(11, 16) + '）' : '（未发车）'}</option>`).join('')
+    || '<option value="">今日无班次</option>';
+  if (trips.length) { $('#tripSel').onchange = () => loadTrack(Number($('#tripSel').value)); loadTrack(trips[0].id); }
+}
+
+async function loadTrack(tripId) {
+  if (!tripId) return;
+  stopPlay();
+  trackData = await Auth.api(`/api/trip/${tripId}/track`);
+  curIdx = -1;
+  drawTimeline();
+  await initMap();
+  renderTrackState(-1);
+}
+
+function drawTimeline() {
+  const pts = trackData.points;
+  $('#timeline').innerHTML = pts.length
+    ? pts.map((p, i) => `<button class="${i === curIdx ? 'on' : ''}" onclick="jump(${i})">${i + 1}. ${p.name} ${p.ts.slice(11, 19)}</button>`).join('')
+    : '<span class="meta" style="color:#8b9ab5">该行程还没有到站上报记录。</span>';
+  $('#playInfo').textContent = curIdx >= 0 && pts[curIdx]
+    ? `当前：${pts[curIdx].name} · ${pts[curIdx].ts.slice(11, 19)}`
+    : '';
+}
+
+async function initMap() {
+  const el = $('#trackMap');
+  if (!amapJsKey) {
+    el.innerHTML = '<div class="empty" style="padding:60px 20px">未配置高德地图 key，轨迹回放暂不可用。</div>';
+    return;
+  }
+  if (window.AMap) { if (!mapObj) newMap(el); return; }
+  window._AMapSecurityConfig = { securityJsCode: amapSec };
+  await new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://webapi.amap.com/maps?v=2.0&key=' + encodeURIComponent(amapJsKey);
+    s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+  newMap(el);
+}
+function newMap(el) {
+  mapObj = new AMap.Map(el, { center: [113.93, 22.54], zoom: 14, viewMode: '2D', mapStyle: 'amap://styles/dark' });
+}
+
+function renderTrackState(idx) {
+  if (!mapObj) return;
+  overlays.forEach(o => mapObj.remove(o)); overlays = [];
+  const t = trackData;
+  // 线路底图
+  const routePath = t.route_stops.map(s => [s.lng, s.lat]);
+  if (routePath.length >= 2) {
+    overlays.push(new AMap.Polyline({ map: mapObj, path: routePath, strokeColor: t.trip.color, strokeWeight: 4, strokeOpacity: .5 }));
+  }
+  t.route_stops.forEach(s => {
+    overlays.push(new AMap.Marker({ map: mapObj, position: [s.lng, s.lat], anchor: 'center', zIndex: 10,
+      content: `<div style="color:#8b9ab5;font-size:11px;background:#0f1420cc;padding:1px 6px;border-radius:5px;border:1px solid #2a3550;white-space:nowrap">${s.name}</div>` }));
+  });
+  // 已走过的轨迹
+  const visited = t.points.slice(0, idx + 1).map(p => [p.lng, p.lat]);
+  if (visited.length >= 2) {
+    overlays.push(new AMap.Polyline({ map: mapObj, path: visited, strokeColor: '#25a06b', strokeWeight: 6, strokeOpacity: .95, zIndex: 30 }));
+  }
+  if (idx >= 0 && t.points[idx]) {
+    const p = t.points[idx];
+    overlays.push(new AMap.Marker({ map: mapObj, position: [p.lng, p.lat], anchor: 'center', zIndex: 50,
+      content: `<div style="background:${t.trip.color};color:#fff;font-size:12px;padding:4px 10px;border-radius:7px;border:2px solid #fff;white-space:nowrap">${t.trip.plate} · ${p.name}<br><span style="font-size:10px">${p.ts.slice(11, 19)}</span></div>` }));
+    mapObj.setCenter([p.lng, p.lat]);
+  }
+  if (visited.length) mapObj.setFitView(null, true, [50, 50, 50, 50]);
+}
+
+function jump(i) {
+  curIdx = i; drawTimeline(); renderTrackState(curIdx);
+}
+function step(d) {
+  const n = trackData.points.length;
+  if (!n) return;
+  curIdx = Math.min(n - 1, Math.max(0, curIdx + d));
+  drawTimeline(); renderTrackState(curIdx);
+}
+function togglePlay() {
+  if (playTimer) { stopPlay(); return; }
+  if (!trackData || !trackData.points.length) return;
+  if (curIdx >= trackData.points.length - 1) curIdx = -1;
+  $('#playBtn').textContent = '⏸ 暂停';
+  playTimer = setInterval(() => {
+    if (curIdx >= trackData.points.length - 1) { stopPlay(); return; }
+    step(1);
+  }, 1200);
+  step(1);
+}
+function stopPlay() {
+  if (playTimer) { clearInterval(playTimer); playTimer = null; }
+  $('#playBtn').textContent = '▶ 回放';
+}
+loadTrips();
+</script>
+</body>
+</html>

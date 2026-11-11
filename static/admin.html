@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dispatcher · 台账管理</title>
+<link rel="stylesheet" href="/static/base.css">
+<style>
+  .tabs{display:flex;gap:6px;flex-wrap:wrap}
+  .tabs button{padding:7px 14px}
+  .tabs button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .pane{display:none}
+  .pane.on{display:block}
+  td .sm{padding:2px 8px}
+  .drawbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+  #drawMap{height:520px;background:#141b29;border-radius:8px}
+  .drawhint{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;margin-bottom:8px}
+  form.inline{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px}
+  form.inline .field{display:flex;flex-direction:column}
+</style>
+</head>
+<body>
+<header>
+  <h1>Dispatcher <span style="color:#8b9ab5;font-weight:400">· 台账管理</span></h1>
+  <nav class="nav">
+    <a href="/dispatcher">调度端</a>
+    <a href="/admin" class="active">台账</a>
+    <a href="/board">看板</a>
+    <a href="/track">轨迹</a>
+    <a href="#" onclick="Auth.logout();return false">退出</a>
+  </nav>
+</header>
+
+<main>
+  <section class="card">
+    <div class="tabs">
+      <button class="on" data-t="vehicles" onclick="tab('vehicles')">车辆</button>
+      <button data-t="drivers" onclick="tab('drivers')">司机</button>
+      <button data-t="routes" onclick="tab('routes')">线路/站点</button>
+      <button data-t="draw" onclick="tab('draw')">地图画线路</button>
+      <button data-t="shifts" onclick="tab('shifts')">排班</button>
+      <button data-t="events" onclick="tab('events')">事件日志</button>
+    </div>
+  </section>
+
+  <!-- 车辆 -->
+  <section class="card pane on" id="pane-vehicles">
+    <h2>车辆</h2>
+    <form class="inline" onsubmit="return saveVehicle(event)">
+      <input type="hidden" id="v-id">
+      <div class="field"><label>车牌</label><input id="v-plate" required style="width:130px"></div>
+      <div class="field"><label>类型</label><select id="v-kind" style="width:130px">
+        <option>大巴</option><option>中巴</option><option selected>摆渡车(电动)</option></select></div>
+      <div class="field"><label>座位</label><input id="v-seats" type="number" min="0" value="8" style="width:80px"></div>
+      <div class="field"><label>状态</label><select id="v-status" style="width:110px">
+        <option value="idle">空闲</option><option value="running">运行</option><option value="off">停用</option></select></div>
+      <button class="primary">保存</button>
+      <button type="button" onclick="resetVehicleForm()">清空</button>
+    </form>
+    <div style="overflow:auto"><table id="tbl-vehicles"><thead>
+      <tr><th>ID</th><th>车牌</th><th>类型</th><th>座位</th><th>状态</th><th></th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <!-- 司机 -->
+  <section class="card pane" id="pane-drivers">
+    <h2>司机</h2>
+    <form class="inline" onsubmit="return saveDriver(event)">
+      <input type="hidden" id="d-id">
+      <div class="field"><label>姓名</label><input id="d-name" required style="width:110px"></div>
+      <div class="field"><label>手机号（登录用）</label><input id="d-phone" required style="width:160px"></div>
+      <div class="field"><label>绑定车辆</label><select id="d-vehicle" style="width:160px"></select></div>
+      <div class="field"><label>在岗</label><select id="d-onduty" style="width:90px">
+        <option value="1">是</option><option value="0">否</option></select></div>
+      <button class="primary">保存</button>
+      <button type="button" onclick="resetDriverForm()">清空</button>
+    </form>
+    <div style="overflow:auto"><table id="tbl-drivers"><thead>
+      <tr><th>ID</th><th>姓名</th><th>手机号</th><th>车辆</th><th>在岗</th><th></th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <!-- 线路 -->
+  <section class="card pane" id="pane-routes">
+    <h2>线路</h2>
+    <form class="inline" onsubmit="return saveRoute(event)">
+      <input type="hidden" id="r-id">
+      <div class="field"><label>名称</label><input id="r-name" required style="width:160px"></div>
+      <div class="field"><label>方向</label><select id="r-direction" style="width:110px">
+        <option value="loop">环线</option><option value="oneway">单程</option></select></div>
+      <div class="field"><label>颜色</label><input id="r-color" type="color" value="#2f6fed"></div>
+      <button class="primary">保存</button>
+      <button type="button" onclick="resetRouteForm()">清空</button>
+    </form>
+    <div id="routesList"></div>
+  </section>
+
+  <!-- 地图画线路 -->
+  <section class="card pane" id="pane-draw">
+    <h2>地图上画线路生成站点</h2>
+    <div class="drawbar">
+      <label style="margin:0">目标线路：</label>
+      <select id="drawRoute" style="width:180px"></select>
+      <button id="drawToggle" class="primary" onclick="toggleDraw()">开始画点</button>
+      <button onclick="undoPoint()">撤销上一点</button>
+      <button onclick="clearPoints()">清空</button>
+      <button class="ok" onclick="submitStops()">生成站点</button>
+      <span class="meta" id="drawCount" style="color:#8b9ab5">已选 0 个点</span>
+    </div>
+    <div class="drawhint">点「开始画点」后，在地图上按行车顺序依次点击站点位置；每个点生成后可编辑名称。点完按「生成站点」写入线路。</div>
+    <div id="drawMap"></div>
+    <div id="drawList" style="margin-top:10px"></div>
+  </section>
+
+  <!-- 排班 -->
+  <section class="card pane" id="pane-shifts">
+    <h2>班次（同车/同司机时间重叠会被拦截）</h2>
+    <form class="inline" onsubmit="return saveShift(event)">
+      <input type="hidden" id="s-id">
+      <div class="field"><label>线路</label><select id="s-route" style="width:150px"></select></div>
+      <div class="field"><label>车辆</label><select id="s-vehicle" style="width:150px"></select></div>
+      <div class="field"><label>司机</label><select id="s-driver" style="width:150px"></select></div>
+      <div class="field"><label>发车时间</label><input id="s-time" type="time" required style="width:130px"></div>
+      <div class="field"><label>时长(分)</label><input id="s-duration" type="number" min="5" max="480" value="45" style="width:90px"></div>
+      <button class="primary">保存</button>
+      <button type="button" onclick="resetShiftForm()">清空</button>
+    </form>
+    <div style="overflow:auto"><table id="tbl-shifts"><thead>
+      <tr><th>ID</th><th>发车</th><th>时长</th><th>线路</th><th>车辆</th><th>司机</th><th></th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <!-- 事件 -->
+  <section class="card pane" id="pane-events">
+    <h2>事件日志（全部）</h2>
+    <div class="log" id="allEvents" style="max-height:70vh;overflow:auto"></div>
+  </section>
+</main>
+
+<script src="/static/auth.js"></script>
+<script src="/static/map.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+if (!Auth.guard(['dispatcher'])) throw new Error('need login');
+
+function tab(name) {
+  $$('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.t === name));
+  $$('.pane').forEach(p => p.classList.toggle('on', p.id === 'pane-' + name));
+  if (name === 'draw') initDrawMap();
+  if (name === 'events') loadEvents();
+}
+if (location.hash === '#events') setTimeout(() => tab('events'), 100);
+
+async function api(url, opts) {
+  return Auth.api(url, opts);
+}
+async function tryApi(fn) {
+  try { await fn(); return true; } catch (e) { alert(e.message); return false; }
+}
+
+/* ---------------------------------------------------------- 车辆 */
+let vehicles = [], drivers = [], routes = [], shifts = [];
+
+function resetVehicleForm() { ['v-id', 'v-plate'].forEach(i => $('#' + i).value = ''); $('#v-seats').value = 8; $('#v-kind').value = '摆渡车(电动)'; $('#v-status').value = 'idle'; }
+function editVehicle(id) {
+  const v = vehicles.find(x => x.id === id);
+  $('#v-id').value = v.id; $('#v-plate').value = v.plate; $('#v-kind').value = v.kind;
+  $('#v-seats').value = v.seats; $('#v-status').value = v.status;
+}
+async function saveVehicle(e) {
+  e.preventDefault();
+  const body = JSON.stringify({ plate: $('#v-plate').value.trim(), kind: $('#v-kind').value, seats: Number($('#v-seats').value), status: $('#v-status').value });
+  const id = $('#v-id').value;
+  const ok = await tryApi(() => api(id ? `/api/vehicles/${id}` : '/api/vehicles', { method: id ? 'PUT' : 'POST', body }));
+  if (ok) { resetVehicleForm(); loadAll(); }
+  return false;
+}
+async function delVehicle(id) {
+  if (!confirm('删除该车辆？')) return;
+  if (await tryApi(() => api(`/api/vehicles/${id}`, { method: 'DELETE' }))) loadAll();
+}
+function drawVehicles() {
+  $('#tbl-vehicles tbody').innerHTML = vehicles.map(v => `
+    <tr><td>${v.id}</td><td>${v.plate}</td><td>${v.kind}</td><td>${v.seats}</td>
+    <td>${{ idle: '空闲', running: '运行', off: '停用' }[v.status] || v.status}</td>
+    <td><button class="sm" onclick="editVehicle(${v.id})">编辑</button>
+        <button class="sm" onclick="delVehicle(${v.id})">删除</button></td></tr>`).join('');
+}
+
+/* ---------------------------------------------------------- 司机 */
+function resetDriverForm() { ['d-id', 'd-name', 'd-phone'].forEach(i => $('#' + i).value = ''); $('#d-onduty').value = '1'; }
+function editDriver(id) {
+  const d = drivers.find(x => x.id === id);
+  $('#d-id').value = d.id; $('#d-name').value = d.name; $('#d-phone').value = d.phone || '';
+  $('#d-vehicle').value = d.vehicle_id || ''; $('#d-onduty').value = String(d.on_duty);
+}
+async function saveDriver(e) {
+  e.preventDefault();
+  const body = JSON.stringify({ name: $('#d-name').value.trim(), phone: $('#d-phone').value.trim(), vehicle_id: $('#d-vehicle').value ? Number($('#d-vehicle').value) : null, on_duty: Number($('#d-onduty').value) });
+  const id = $('#d-id').value;
+  const ok = await tryApi(() => api(id ? `/api/drivers/${id}` : '/api/drivers', { method: id ? 'PUT' : 'POST', body }));
+  if (ok) { resetDriverForm(); loadAll(); }
+  return false;
+}
+async function delDriver(id) {
+  if (!confirm('删除该司机？')) return;
+  if (await tryApi(() => api(`/api/drivers/${id}`, { method: 'DELETE' }))) loadAll();
+}
+function drawDrivers() {
+  $('#d-vehicle').innerHTML = '<option value="">（不绑定）</option>' + vehicles.map(v => `<option value="${v.id}">${v.plate}</option>`).join('');
+  $('#tbl-drivers tbody').innerHTML = drivers.map(d => `
+    <tr><td>${d.id}</td><td>${d.name}</td><td>${d.phone}</td><td>${d.plate || '—'}</td>
+    <td>${d.on_duty ? '是' : '否'}</td>
+    <td><button class="sm" onclick="editDriver(${d.id})">编辑</button>
+        <button class="sm" onclick="delDriver(${d.id})">删除</button></td></tr>`).join('');
+}
+
+/* ---------------------------------------------------------- 线路 */
+function resetRouteForm() { $('#r-id').value = ''; $('#r-name').value = ''; $('#r-color').value = '#2f6fed'; $('#r-direction').value = 'loop'; }
+function editRoute(id) {
+  const r = routes.find(x => x.id === id);
+  $('#r-id').value = r.id; $('#r-name').value = r.name; $('#r-direction').value = r.direction; $('#r-color').value = r.color;
+}
+async function saveRoute(e) {
+  e.preventDefault();
+  const body = JSON.stringify({ name: $('#r-name').value.trim(), direction: $('#r-direction').value, color: $('#r-color').value });
+  const id = $('#r-id').value;
+  const ok = await tryApi(() => api(id ? `/api/routes/${id}` : '/api/routes', { method: id ? 'PUT' : 'POST', body }));
+  if (ok) { resetRouteForm(); loadAll(); }
+  return false;
+}
+async function delRoute(id) {
+  if (!confirm('删除该线路及其全部站点？')) return;
+  if (await tryApi(() => api(`/api/routes/${id}`, { method: 'DELETE' }))) loadAll();
+}
+async function delStop(sid, name) {
+  if (!confirm(`删除站点「${name}」？`)) return;
+  if (await tryApi(() => api(`/api/stops/${sid}`, { method: 'DELETE' }))) loadAll();
+}
+async function moveStop(sid, dir) {
+  const s = findStop(sid); if (!s) return;
+  const sibs = (routes.find(r => r.id === s.route_id)?.stops || []).slice().sort((a, b) => a.seq - b.seq);
+  const i = sibs.findIndex(x => x.id === sid), j = i + dir;
+  if (j < 0 || j >= sibs.length) return;
+  await tryApi(async () => {
+    await api(`/api/stops/${sibs[i].id}`, { method: 'PUT', body: JSON.stringify({ route_id: sibs[i].route_id, name: sibs[i].name, lat: sibs[i].lat, lng: sibs[i].lng, seq: sibs[j].seq }) });
+    await api(`/api/stops/${sibs[j].id}`, { method: 'PUT', body: JSON.stringify({ route_id: sibs[j].route_id, name: sibs[j].name, lat: sibs[j].lat, lng: sibs[j].lng, seq: sibs[i].seq }) });
+  });
+  loadAll();
+}
+function findStop(sid) {
+  for (const r of routes) { const s = (r.stops || []).find(x => x.id === sid); if (s) return s; }
+  return null;
+}
+async function renameStop(sid) {
+  const s = findStop(sid); if (!s) return;
+  const name = prompt('站点名称', s.name);
+  if (name == null || !name.trim()) return;
+  if (await tryApi(() => api(`/api/stops/${sid}`, { method: 'PUT', body: JSON.stringify({ route_id: s.route_id, name: name.trim(), lat: s.lat, lng: s.lng, seq: s.seq }) }))) loadAll();
+}
+function drawRoutes() {
+  $('#routesList').innerHTML = routes.map(r => `
+    <div class="ride">
+      <div class="hd"><strong><span style="color:${r.color}">●</span> ${r.name}</strong>
+        <span class="meta" style="color:#8b9ab5">${r.direction === 'loop' ? '环线' : '单程'} · ${r.stops.length} 站</span></div>
+      <div style="overflow:auto"><table><thead><tr><th>#</th><th>站名</th><th>坐标</th><th></th></tr></thead>
+      <tbody>${r.stops.slice().sort((a, b) => a.seq - b.seq).map(s => `
+        <tr><td>${s.seq}</td><td>${s.name}</td><td class="meta" style="color:#8b9ab5">${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}</td>
+        <td><button class="sm" onclick="moveStop(${s.id},-1)">↑</button><button class="sm" onclick="moveStop(${s.id},1)">↓</button>
+        <button class="sm" onclick="renameStop(${s.id})">改名</button><button class="sm" onclick="delStop(${s.id},'${s.name.replace(/'/g, "\\'")}')">删</button></td></tr>`).join('')}</tbody></table></div>
+      <div style="margin-top:6px"><button class="sm" onclick="editRoute(${r.id})">编辑线路</button>
+      <button class="sm" onclick="delRoute(${r.id})">删除线路</button></div>
+    </div>`).join('') || '<div class="empty">暂无线路</div>';
+  $('#drawRoute').innerHTML = routes.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+  $('#s-route').innerHTML = routes.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+}
+
+/* ---------------------------------------------------------- 地图画线路 */
+let drawMode = false, drawPoints = [], drawMarkers = [], drawLine = null, amapDraw = null;
+
+async function initDrawMap() {
+  if (amapDraw || !$('#drawMap')) return;
+  const st = await (await fetch('/api/state')).json();
+  if ((st.map || {}).provider !== 'amap') {
+    $('#drawMap').innerHTML = '<div class="empty" style="padding:40px">未配置高德地图 key，无法在地图上画线路（可先在「线路/站点」页用坐标管理）。<br>配置 AMAP_JS_KEY 后重启服务即可启用。</div>';
+    return;
+  }
+  window._AMapSecurityConfig = { securityJsCode: st.map.security_code };
+  await new Promise((res, rej) => {
+    if (window.AMap) return res();
+    const s = document.createElement('script');
+    s.src = 'https://webapi.amap.com/maps?v=2.0&key=' + encodeURIComponent(st.map.js_key);
+    s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+  amapDraw = new AMap.Map($('#drawMap'), { center: [113.93, 22.54], zoom: 14, viewMode: '2D', mapStyle: 'amap://styles/dark' });
+  // 已有站点做参考标记
+  st.routes.forEach(r => (r.stops || []).forEach(s => {
+    new AMap.Marker({ map: amapDraw, position: [s.lng, s.lat], anchor: 'center', zIndex: 5,
+      content: `<div style="color:#8b9ab5;font-size:11px;background:#0f142099;padding:1px 5px;border-radius:5px;white-space:nowrap">${s.name}</div>` });
+  }));
+  amapDraw.on('click', e => {
+    if (!drawMode) return;
+    drawPoints.push([e.lnglat.getLng(), e.lnglat.getLat()]);
+    redrawPoints();
+  });
+}
+function toggleDraw() {
+  drawMode = !drawMode;
+  $('#drawToggle').textContent = drawMode ? '停止画点' : '开始画点';
+  $('#drawToggle').classList.toggle('ok', drawMode);
+}
+function redrawPoints() {
+  if (!amapDraw) return;
+  drawMarkers.forEach(m => amapDraw.remove(m)); drawMarkers = [];
+  if (drawLine) { amapDraw.remove(drawLine); drawLine = null; }
+  drawPoints.forEach((p, i) => {
+    const m = new AMap.Marker({ map: amapDraw, position: p, anchor: 'center', zIndex: 50,
+      content: `<div style="background:#2f6fed;color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;border:2px solid #fff">${i + 1}</div>` });
+    drawMarkers.push(m);
+  });
+  if (drawPoints.length >= 2) {
+    drawLine = new AMap.Polyline({ map: amapDraw, path: drawPoints, strokeColor: '#2f6fed', strokeWeight: 4, strokeOpacity: .8 });
+  }
+  $('#drawCount').textContent = `已选 ${drawPoints.length} 个点`;
+  $('#drawList').innerHTML = drawPoints.map((p, i) => `
+    <div class="ride" style="padding:5px 9px;margin-bottom:5px">
+      <span class="meta" style="color:#8b9ab5">${i + 1}.</span>
+      <input value="站点 ${i + 1}" id="pt-name-${i}" style="width:160px;padding:3px 7px">
+      <span class="meta" style="color:#8b9ab5">${p[1].toFixed(5)}, ${p[0].toFixed(5)}</span>
+      <button class="sm" onclick="drawPoints.splice(${i},1);redrawPoints()">移除</button>
+    </div>`).join('');
+}
+function undoPoint() { drawPoints.pop(); redrawPoints(); }
+function clearPoints() { drawPoints = []; redrawPoints(); }
+async function submitStops() {
+  const routeId = Number($('#drawRoute').value);
+  if (!routeId) { alert('先选择目标线路'); return; }
+  if (drawPoints.length < 2) { alert('至少画 2 个站点'); return; }
+  const names = drawPoints.map((_, i) => (document.getElementById('pt-name-' + i)?.value || ('站点 ' + (i + 1))).trim());
+  const body = JSON.stringify({ route_id: routeId, stops: drawPoints.map((p, i) => ({ route_id: routeId, name: names[i], lat: p[1], lng: p[0] })) });
+  if (await tryApi(() => api('/api/stops/batch', { method: 'POST', body }))) {
+    alert('站点已生成！');
+    clearPoints(); loadAll();
+  }
+}
+
+/* ---------------------------------------------------------- 排班 */
+function resetShiftForm() { $('#s-id').value = ''; $('#s-time').value = ''; $('#s-duration').value = 45; }
+function editShift(id) {
+  const s = shifts.find(x => x.id === id);
+  $('#s-id').value = s.id; $('#s-route').value = s.route_id; $('#s-vehicle').value = s.vehicle_id;
+  $('#s-driver').value = s.driver_id; $('#s-time').value = s.depart_time; $('#s-duration').value = s.duration_min;
+}
+async function saveShift(e) {
+  e.preventDefault();
+  const body = JSON.stringify({
+    route_id: Number($('#s-route').value), vehicle_id: Number($('#s-vehicle').value),
+    driver_id: Number($('#s-driver').value), depart_time: $('#s-time').value, duration_min: Number($('#s-duration').value),
+  });
+  const id = $('#s-id').value;
+  const ok = await tryApi(() => api(id ? `/api/shifts/${id}` : '/api/shifts', { method: id ? 'PUT' : 'POST', body }));
+  if (ok) { resetShiftForm(); loadAll(); }
+  return false;
+}
+async function delShift(id) {
+  if (!confirm('删除该班次（含今日行程）？')) return;
+  if (await tryApi(() => api(`/api/shifts/${id}`, { method: 'DELETE' }))) loadAll();
+}
+function drawShifts() {
+  $('#s-vehicle').innerHTML = vehicles.map(v => `<option value="${v.id}">${v.plate}</option>`).join('');
+  $('#s-driver').innerHTML = drivers.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+  $('#tbl-shifts tbody').innerHTML = shifts.map(s => `
+    <tr><td>${s.id}</td><td>${s.depart_time}</td><td>${s.duration_min}分</td>
+    <td><span style="color:${s.color}">●</span> ${s.route_name}</td><td>${s.plate}</td><td>${s.driver_name}</td>
+    <td><button class="sm" onclick="editShift(${s.id})">编辑</button>
+        <button class="sm" onclick="delShift(${s.id})">删除</button></td></tr>`).join('') || '<tr><td colspan="7" class="empty">暂无班次</td></tr>';
+}
+
+async function loadEvents() {
+  const evs = await api('/api/events?limit=500');
+  $('#allEvents').innerHTML = evs.map(e => `<div>[${e.ts.replace('T', ' ').slice(0, 19)}] <b style="color:#cfe0ff">${e.kind}</b> ${e.detail}</div>`).join('');
+}
+
+async function loadAll() {
+  const [vs, ds, rs, ss] = await Promise.all([
+    api('/api/vehicles'), api('/api/drivers'), api('/api/routes'), api('/api/shifts'),
+  ]);
+  vehicles = vs; drivers = ds; routes = rs; shifts = ss;
+  drawVehicles(); drawDrivers(); drawRoutes(); drawShifts();
+}
+loadAll();
+</script>
+</body>
+</html>

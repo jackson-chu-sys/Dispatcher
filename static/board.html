@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dispatcher · 大屏看板</title>
+<link rel="stylesheet" href="/static/base.css">
+<style>
+  body{background:#0a0e18}
+  main{max-width:1600px}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;text-align:center}
+  .kpi .num{font-size:40px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+  .kpi .lbl{color:var(--muted);font-size:13px;margin-top:6px}
+  .kpi .sub{color:var(--muted);font-size:12px;margin-top:2px}
+  .num.ok{color:var(--ok)} .num.warn{color:var(--warn)} .num.accent{color:var(--accent)}
+  .fleetbar{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .fleet-chip{background:var(--panel2);border:1px solid var(--line);border-radius:16px;padding:3px 12px;font-size:12px}
+  .fleet-chip.on{border-color:var(--ok);color:var(--ok)}
+  h1.big-title{text-align:center;font-size:22px;margin:6px 0 2px;letter-spacing:6px}
+  .sub-title{text-align:center;color:var(--muted);font-size:13px;margin-bottom:14px}
+</style>
+</head>
+<body>
+<main>
+  <h1 class="big-title">班车调度大屏</h1>
+  <div class="sub-title" id="day">—</div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="num accent" id="k-online">—</div><div class="lbl">车辆在线率</div><div class="sub" id="k-online-sub"></div></div>
+    <div class="kpi"><div class="num ok" id="k-punct">—</div><div class="lbl">准点率（发车≤5min 延迟）</div><div class="sub" id="k-punct-sub"></div></div>
+    <div class="kpi"><div class="num" id="k-complete">—</div><div class="lbl">今日班次完成率</div><div class="sub" id="k-complete-sub"></div></div>
+    <div class="kpi"><div class="num warn" id="k-rides">—</div><div class="lbl">进行中叫车</div><div class="sub" id="k-rides-sub"></div></div>
+    <div class="kpi"><div class="num" id="k-arrivals">—</div><div class="lbl">今日到站上报次数</div><div class="sub"></div></div>
+  </div>
+
+  <section class="card" style="margin-top:14px">
+    <h2>车队状态</h2>
+    <div class="fleetbar" id="fleet"></div>
+  </section>
+
+  <div class="grid2" style="margin-top:14px">
+    <section class="card">
+      <h2>今日班次进度</h2>
+      <div style="overflow:auto"><table id="trips"><thead>
+        <tr><th>发车</th><th>线路</th><th>车辆</th><th>司机</th><th>状态</th><th>当前站</th></tr>
+      </thead><tbody></tbody></table></div>
+    </section>
+    <section class="card">
+      <h2>实时事件</h2>
+      <div class="log" id="log" style="max-height:46vh;overflow:auto"></div>
+    </section>
+  </div>
+</main>
+
+<script src="/static/auth.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+if (!Auth.guard(['dispatcher'])) throw new Error('need login');
+const TRIP = { waiting: '未发车', running: '运行中', done: '已完成' };
+
+async function load() {
+  try {
+    const [dash, trips, evs] = await Promise.all([
+      Auth.api('/api/dashboard'),
+      Auth.api('/api/trips/today'),
+      Auth.api('/api/events?limit=40'),
+    ]);
+    $('#day').textContent = `${dash.day} · 更新于 ${dash.now.slice(11, 19)}`;
+    $('#k-online').textContent = dash.vehicles.online_rate + '%';
+    $('#k-online-sub').textContent = `${dash.vehicles.online} / ${dash.vehicles.total} 辆已上报位置`;
+    $('#k-punct').textContent = dash.punctuality.rate + '%';
+    $('#k-punct-sub').textContent = `${dash.punctuality.on_time} 准点 / ${dash.punctuality.late} 晚点（已发车 ${dash.punctuality.started}）`;
+    $('#k-complete').textContent = dash.shifts.completion_rate + '%';
+    $('#k-complete-sub').textContent = `${dash.shifts.done} 完成 / ${dash.shifts.running} 运行 / ${dash.shifts.total} 总班次`;
+    $('#k-rides').textContent = dash.rides.active;
+    $('#k-rides-sub').textContent = `今日共 ${dash.rides.total} 单 · 送达 ${dash.rides.done} · 取消 ${dash.rides.cancelled}`;
+    $('#k-arrivals').textContent = dash.arrivals_today;
+
+    $('#fleet').innerHTML = dash.fleet.map(v => `
+      <span class="fleet-chip ${v.arrived_at ? 'on' : ''}">${v.plate}${v.stop_name ? ' · ' + v.stop_name : ' · 未发车'}${v.driver ? ' · ' + v.driver : ''}</span>`).join('');
+
+    $('#trips tbody').innerHTML = trips.map(t => `
+      <tr><td>${t.depart_time}</td>
+      <td><span style="color:${t.color}">●</span> ${t.route_name}</td>
+      <td>${t.plate}</td><td>${t.driver_name}</td>
+      <td>${TRIP[t.status] || t.status}${t.delay_min > 5 ? '' : ''}</td>
+      <td>${t.stop_name || '—'}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">今日无班次</td></tr>';
+
+    $('#log').innerHTML = evs.map(e => `<div>[${e.ts.slice(11, 19)}] <b style="color:#cfe0ff">${e.kind}</b> ${e.detail}</div>`).join('');
+  } catch (e) { console.error(e); }
+}
+load();
+setInterval(load, 5000);
+</script>
+</body>
+</html>

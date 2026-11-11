@@ -1,4 +1,4 @@
-"""SQLite 存储层：建表 + 种子数据（DEMO 阶段单文件库，无数据库服务）。"""
+"""SQLite 存储层：建表 + 迁移 + 种子数据（DEMO 阶段单文件库，无数据库服务）。"""
 from __future__ import annotations
 
 import os
@@ -71,18 +71,29 @@ CREATE TABLE IF NOT EXISTS events (
     kind TEXT NOT NULL,
     detail TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS arrivals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trip_id INTEGER NOT NULL,
+    stop_id INTEGER NOT NULL,
+    ts TEXT NOT NULL                  -- 上报时间（服务器）
+);
 CREATE INDEX IF NOT EXISTS idx_stops_route ON stops(route_id, seq);
 CREATE INDEX IF NOT EXISTS idx_trips_day ON trips(day);
+CREATE INDEX IF NOT EXISTS idx_arrivals_trip ON arrivals(trip_id, id);
 """
+
+# 迁移：为老库补列（幂等）
+MIGRATIONS = [
+    ("shifts", "duration_min", "INTEGER NOT NULL DEFAULT 45"),   # 班次预计时长(分钟),用于排班冲突检测
+    ("trips", "started_at", "TEXT"),                             # 实际发车时间,用于准点率
+]
 
 
 def now_iso() -> str:
     return datetime.now(CST).isoformat(timespec="seconds")
 
-
 def today_str() -> str:
     return datetime.now(CST).strftime("%Y-%m-%d")
-
 
 def connect() -> sqlite3.Connection:
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -93,10 +104,18 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, column, decl in MIGRATIONS:
+        cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
+
 def init_db(seed: bool = True) -> None:
     conn = connect()
     try:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         conn.commit()
         if seed and conn.execute("SELECT COUNT(*) FROM vehicles").fetchone()[0] == 0:
             _seed(conn)
@@ -165,16 +184,16 @@ def _seed(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO stops(route_id, seq, name, lat, lng) VALUES (?,?,?,?,?)", (route_b, i, name, lat, lng))
 
     shifts = [
-        (route_a, vids[0], dids[0], "08:00"),
-        (route_a, vids[2], dids[2], "08:30"),
-        (route_a, vids[0], dids[0], "12:00"),
-        (route_a, vids[1], dids[1], "17:30"),
-        (route_b, vids[1], dids[1], "08:15"),
-        (route_b, vids[3], dids[3], "12:30"),
-        (route_b, vids[3], dids[3], "18:00"),
+        (route_a, vids[0], dids[0], "08:00", 60),
+        (route_a, vids[2], dids[2], "08:30", 60),
+        (route_a, vids[0], dids[0], "12:00", 60),
+        (route_a, vids[1], dids[1], "17:30", 60),
+        (route_b, vids[1], dids[1], "08:15", 45),
+        (route_b, vids[3], dids[3], "12:30", 45),
+        (route_b, vids[3], dids[3], "18:00", 45),
     ]
     conn.executemany(
-        "INSERT INTO shifts(route_id, vehicle_id, driver_id, depart_time) VALUES (?,?,?,?)", shifts
+        "INSERT INTO shifts(route_id, vehicle_id, driver_id, depart_time, duration_min) VALUES (?,?,?,?,?)", shifts
     )
     conn.execute("INSERT INTO events(ts, kind, detail) VALUES (?,?,?)", (now_iso(), "seed", "初始化演示数据"))
 
