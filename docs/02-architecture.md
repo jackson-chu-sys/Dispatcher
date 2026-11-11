@@ -86,7 +86,7 @@ Dispatcher/
 
 ## 6. 部署
 
-- 容器内 `0.0.0.0:8010`，宿主映射 `8010:8010`（已在 Hermes 容器 compose 里）。
+- 容器内 `0.0.0.0:8010`，宿主映射 `8000:8010`（宿主仅开放 8000 端口；2026-11-11 由 FinAdvisor 让出）。
 - `docker-compose.yml` 为独立部署形态（`./data` 挂卷持久化，`TENCENT_MAP_KEY` 走环境变量）。
 - 容器内由 cron 看门狗 `ensure-dispatcher.sh`（每 10 分钟）探活并拉起，日志在 `logs/server.log`。
 

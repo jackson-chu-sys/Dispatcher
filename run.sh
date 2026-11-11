@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-PORT="${PORT:-8010}"
+PORT="${PORT:-8000}"
 HOST="${HOST:-0.0.0.0}"
 RELOAD="${RELOAD:-1}"
 

@@ -10,15 +10,15 @@
 
 ```bash
 cd /mnt/projects/Dispatcher
-./run.sh                                   # 起服务（默认 8010）
+./run.sh                                   # 起服务（默认 8000）
 .venv/bin/python scripts/reset_demo.py     # 重置演示数据
 ```
 
-- 调度端 `http://<nas-ip>:8010/dispatcher`
-- 司机端 `http://<nas-ip>:8010/driver`
-- 乘客端 `http://<nas-ip>:8010/rider`
+- 调度端 `http://<nas-ip>:8000/dispatcher`
+- 司机端 `http://<nas-ip>:8000/driver`
+- 乘客端 `http://<nas-ip>:8000/rider`
 
-Docker：`docker compose up -d --build`（宿主端口 8010，数据卷 `./data`，`TENCENT_MAP_KEY` 走环境变量）。
+Docker：`docker compose up -d --build`（宿主端口 8000 → 容器 8010，数据卷 `./data`，`TENCENT_MAP_KEY` 走环境变量）。
 
 ## 文档索引
 

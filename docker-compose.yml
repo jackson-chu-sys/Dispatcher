@@ -4,7 +4,7 @@ services:
     container_name: dispatcher
     restart: unless-stopped
     ports:
-      - "8010:8010"
+      - "8000:8010"   # 宿主仅开放 8000 端口映射
     volumes:
       - ./data:/app/data
     environment:

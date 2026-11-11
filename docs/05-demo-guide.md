@@ -1,19 +1,19 @@
 # 05 · DEMO 使用说明
 
-**版本：v0.1（2026-11-11）** ｜ 跑在绿联 NAS 的 Hermes 容器里，容器内 8010、宿主已映射 8010。
+**版本：v0.1（2026-11-11）** ｜ 跑在绿联 NAS 的 Hermes 容器里，服务监听 8000（宿主已映射 8000）。
 
 ## 1. 打开
 
 | 端 | 地址 | 建议设备 |
 |---|---|---|
-| 调度端 | `http://192.168.1.210:8010/dispatcher` | 电脑浏览器 |
-| 司机端 | `http://192.168.1.210:8010/driver` | 手机浏览器（同一个 WiFi） |
-| 乘客端 | `http://192.168.1.210:8010/rider` | 手机浏览器 |
+| 调度端 | `http://192.168.1.210:8000/dispatcher` | 电脑浏览器 |
+| 司机端 | `http://192.168.1.210:8000/driver` | 手机浏览器（同一个 WiFi） |
+| 乘客端 | `http://192.168.1.210:8000/rider` | 手机浏览器 |
 
 打不开时依次排查：
 1. 手机和 NAS 是否同一网段；
-2. `curl http://192.168.1.210:8010/health`（在 NAS 上）—— 不通则容器内服务没起，看 `logs/server.log`；
-3. 宿主 8010 是否被别的服务占用（`docker ps` 看端口映射）。
+2. `curl http://192.168.1.210:8000/health`（在 NAS 上）—— 不通则容器内服务没起，看 `logs/server.log`；
+3. 宿主 8000 是否被别的服务占用（`docker ps` 看端口映射）。
 
 ## 2. 三分钟演示脚本（建议两人：电脑 + 手机）
 
@@ -34,7 +34,7 @@
 ```bash
 cd /mnt/projects/Dispatcher
 
-./run.sh                      # 本地起服务（带热重载，默认 8010）
+./run.sh                      # 本地起服务（带热重载，默认 8000）
 .venv/bin/python scripts/reset_demo.py   # 清空演示数据、重新播种
 tail -f logs/server.log       # 看服务日志
 
@@ -43,7 +43,7 @@ docker compose up -d --build
 ```
 
 看门狗：cron `dispatcher-demo-watchdog`（每 10 分钟）跑 `/opt/data/scripts/ensure-dispatcher.sh`，
-探活 `127.0.0.1:8010/health`，挂了自动拉起，健康时静默。
+探活 `127.0.0.1:8000/health`，挂了自动拉起，健康时静默。
 
 ## 4. 演示数据
 
