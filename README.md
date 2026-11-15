@@ -30,6 +30,7 @@ Docker：`docker compose up -d --build`（宿主端口 8000 → 容器 8010，�
 | [docs/03-roadmap.md](docs/03-roadmap.md) | 阶段 0/1/2/3 与里程碑进度 |
 | [docs/04-decisions.md](docs/04-decisions.md) | 决策记录 D1–D16（含小程序、高德地图、SQLite、WebSocket、鉴权、冲突检测、ETA、轨迹的取舍） |
 | [docs/05-demo-guide.md](docs/05-demo-guide.md) | DEMO 怎么打开、三分钟演示脚本、命令、已知问题 |
+| [docs/06-deployment.md](docs/06-deployment.md) | 试用/上线部署：PaaS 托管、云服务器一键部署、环境变量、高德 key 域名白名单坑 |
 
 ## 技术栈
 

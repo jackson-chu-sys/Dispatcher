@@ -4,7 +4,7 @@ services:
     container_name: dispatcher
     restart: unless-stopped
     ports:
-      - "8000:8010"   # 宿主仅开放 8000 端口映射
+      - "${COMPOSE_HOST_PORT:-8000}:8010"   # 宿主端口可用 COMPOSE_HOST_PORT 覆盖（默认 8000）
     volumes:
       - ./data:/app/data
     environment:
