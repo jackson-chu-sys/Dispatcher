@@ -63,6 +63,9 @@ AMAP_JS_KEY = os.environ.get("AMAP_JS_KEY", "").strip()          # Web端(JS API
 AMAP_SECURITY = os.environ.get("AMAP_SECURITY_CODE", "").strip()  # JS key 配套安全密钥
 AMAP_WEB_KEY = os.environ.get("AMAP_WEB_KEY", "").strip()         # Web服务 key（逆地理编码，可选）
 
+# DEMO 模式：登录页直接列出演示账号一键登录（仅试用部署时开启，默认关）
+DEMO_MODE = os.environ.get("DEMO_MODE", "0").strip() in ("1", "true", "True", "yes")
+
 # ---------------------------------------------------------------- 登录
 TOKEN_TTL_H = 12 * 3600
 
@@ -175,6 +178,25 @@ def api_login(body: LoginIn):
                 "user": {"role": "dispatcher", "id": 0, "name": "调度员"}}
     finally:
         conn.close()
+
+
+@app.get("/api/demo-accounts")
+def api_demo_accounts():
+    """DEMO 模式下返回可一键登录的演示账号；非 DEMO 模式返回 disabled。"""
+    if not DEMO_MODE:
+        return {"demo_mode": False}
+    conn = db.connect()
+    try:
+        drivers = rows(conn, """SELECT d.id, d.name, d.phone, v.plate
+                                FROM drivers d LEFT JOIN vehicles v ON v.id=d.vehicle_id
+                                WHERE d.on_duty=1 ORDER BY d.id LIMIT 6""")
+    finally:
+        conn.close()
+    return {
+        "demo_mode": True,
+        "drivers": [{"name": d["name"], "phone": d["phone"], "plate": d["plate"]} for d in drivers],
+        "dispatcher_password": _dispatcher_password(),
+    }
 
 
 @app.get("/api/me")

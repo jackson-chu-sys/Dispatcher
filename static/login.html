@@ -17,24 +17,39 @@
   .tabs button{flex:1;padding:9px}
   .tabs button.on{background:var(--accent);border-color:var(--accent);color:#fff}
   .err{color:var(--bad);font-size:13px;min-height:20px;margin-top:8px}
+  .demo-box{border:1px dashed var(--line);border-radius:8px;padding:10px;margin-bottom:14px;background:var(--panel2)}
+  .demo-box .ttl{font-size:12px;color:var(--warn);margin-bottom:8px;font-weight:600}
+  .demo-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .demo-grid button{padding:7px 6px;font-size:12px;text-align:left;line-height:1.3}
+  .demo-grid button small{display:block;color:var(--muted);font-size:11px}
+  .demo-full{grid-column:1/-1}
 </style>
 </head>
 <body>
 <section class="card login-card">
   <h2 style="font-size:16px;color:var(--text)">Dispatcher 登录</h2>
-  <div class="tabs">
-    <button id="tabDriver" class="on" onclick="switchTab('driver')">司机（手机号）</button>
-    <button id="tabDispatcher" onclick="switchTab('dispatcher')">调度员（口令）</button>
+
+  <div class="demo-box" id="demoBox" style="display:none">
+    <div class="ttl">⚡ 演示账号 · 点击直接登录</div>
+    <div class="demo-grid" id="demoGrid"></div>
   </div>
-  <div id="driverForm">
-    <label>登记手机号</label>
-    <input id="phone" type="tel" placeholder="如 13800000001" style="width:100%" autocomplete="tel">
+
+  <div id="manualBox">
+    <div class="tabs">
+      <button id="tabDriver" class="on" onclick="switchTab('driver')">司机（手机号）</button>
+      <button id="tabDispatcher" onclick="switchTab('dispatcher')">调度员（口令）</button>
+    </div>
+    <div id="driverForm">
+      <label>登记手机号</label>
+      <input id="phone" type="tel" placeholder="如 13800000001" style="width:100%" autocomplete="tel">
+    </div>
+    <div id="dispatcherForm" style="display:none">
+      <label>调度口令</label>
+      <input id="password" type="password" style="width:100%" autocomplete="current-password">
+    </div>
+    <button class="primary" style="width:100%;margin-top:14px;padding:10px" onclick="login()">登录</button>
   </div>
-  <div id="dispatcherForm" style="display:none">
-    <label>调度口令</label>
-    <input id="password" type="password" style="width:100%" autocomplete="current-password">
-  </div>
-  <button class="primary" style="width:100%;margin-top:14px;padding:10px" onclick="login()">登录</button>
+
   <div class="err" id="err"></div>
   <div class="hint" style="margin-top:10px">乘客叫车无需登录：<a href="/rider">直接进入乘客端 →</a></div>
 </section>
@@ -49,18 +64,41 @@ function switchTab(r) {
   document.getElementById('dispatcherForm').style.display = r === 'dispatcher' ? '' : 'none';
   document.getElementById('err').textContent = '';
 }
-async function login() {
-  const body = { role, phone: document.getElementById('phone').value, password: document.getElementById('password').value };
-  try {
-    const data = await Auth.api('/api/login', { method: 'POST', body: JSON.stringify(body) }, true);
-    Auth.save(data.token, data.user);
-    const next = new URLSearchParams(location.search).get('next');
-    location.href = next || (data.user.role === 'dispatcher' ? '/dispatcher' : '/driver');
-  } catch (e) {
-    document.getElementById('err').textContent = e.message;
-  }
+
+function doLogin(body) {
+  Auth.api('/api/login', { method: 'POST', body: JSON.stringify(body) }, true)
+    .then(data => {
+      Auth.save(data.token, data.user);
+      const next = new URLSearchParams(location.search).get('next');
+      location.href = next || (data.user.role === 'dispatcher' ? '/dispatcher' : '/driver');
+    })
+    .catch(e => { document.getElementById('err').textContent = e.message; });
 }
+
+function login() {
+  doLogin({ role, phone: document.getElementById('phone').value, password: document.getElementById('password').value });
+}
+
+/* DEMO 模式：拉演示账号，渲染一键登录按钮 */
+async function loadDemo() {
+  try {
+    const d = await (await fetch('/api/demo-accounts')).json();
+    if (!d.demo_mode) return;
+    const grid = document.getElementById('demoGrid');
+    let html = '';
+    (d.drivers || []).forEach(dr => {
+      html += `<button onclick="doLogin({role:'driver',phone:'${dr.phone}'})">🚐 ${dr.name}<small>${dr.plate || '司机'}</small></button>`;
+    });
+    if (d.dispatcher_password) {
+      html += `<button class="demo-full ok" onclick="doLogin({role:'dispatcher',password:'${d.dispatcher_password}'})">🖥️ 调度员（一键登录）<small>地图 / 派单 / 台账 / 看板</small></button>`;
+    }
+    grid.innerHTML = html;
+    document.getElementById('demoBox').style.display = '';
+  } catch (e) { /* 非 demo 模式静默 */ }
+}
+
 document.addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+loadDemo();
 </script>
 </body>
 </html>
