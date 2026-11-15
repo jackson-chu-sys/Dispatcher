@@ -105,9 +105,10 @@
       <button onclick="undoPoint()">撤销上一点</button>
       <button onclick="clearPoints()">清空待画点</button>
       <button class="ok" onclick="submitStops()">生成站点</button>
+      <button id="satToggle" onclick="toggleSatellite()">🛰 卫星图层</button>
       <span class="meta" id="drawCount" style="color:#8b9ab5">已选 0 个点</span>
     </div>
-    <div class="drawhint">用法：选目标线路 →「开始画点」→ 在地图上按行车顺序依次点击 → 给点命名 →「生成站点」。<b>生成后立即显示在地图上（蓝框=已有站点）</b>；点地图上的站点标记可删除；绿色=本次待画点。画错可用「撤销上一点」。</div>
+    <div class="drawhint">用法：选目标线路 →「开始画点」→ 在地图上按行车顺序依次点击 → 给点命名 →「生成站点」。<b>生成后立即显示在地图上（蓝框=已有站点）</b>；点地图上的站点标记可删除。<b>点不准？直接拖动标记微调</b>——绿色待画点拖完自动更新坐标；蓝色已有站点拖完自动保存。画错可用「撤销上一点」。卫星图层下对照实景画点更准（可放大到建筑级）。</div>
     <div id="drawExisting" style="margin-bottom:8px"></div>
     <div id="drawMap"></div>
     <div id="drawList" style="margin-top:10px"></div>
@@ -305,6 +306,7 @@ function drawRoutes() {
 
 /* ---------------------------------------------------------- 地图画线路 */
 let drawMode = false, drawPoints = [], drawMarkers = [], drawLine = null, amapDraw = null, refMarkers = [];
+let satLayer = null, roadnetLayer = null, satOn = false;
 
 async function initDrawMap() {
   if (amapDraw || !$('#drawMap')) return;
@@ -327,9 +329,14 @@ async function initDrawMap() {
   if (r0 && (r0.stops || []).length) {
     const ls = r0.stops.map(x => x.lng), as = r0.stops.map(x => x.lat);
     center = [(Math.min(...ls) + Math.max(...ls)) / 2, (Math.min(...as) + Math.max(...as)) / 2];
-    zoom = 15;
+    zoom = 17;
   }
-  amapDraw = new AMap.Map($('#drawMap'), { center, zoom, viewMode: '2D', mapStyle: 'amap://styles/dark' });
+  amapDraw = new AMap.Map($('#drawMap'), { center, zoom, zooms: [3, 20], viewMode: '2D', mapStyle: 'amap://styles/dark' });
+  // 卫星图层（默认隐藏，按钮切换）
+  satLayer = new AMap.TileLayer.Satellite({ zIndex: 2 });
+  roadnetLayer = new AMap.TileLayer.RoadNet({ zIndex: 3 });
+  amapDraw.add([satLayer, roadnetLayer]);
+  satLayer.hide(); roadnetLayer.hide();
   amapDraw.on('click', e => {
     if (!drawMode) return;
     drawPoints.push([e.lnglat.getLng(), e.lnglat.getLat()]);
@@ -357,13 +364,27 @@ function drawRefMarkers() {
     if (route.direction === 'loop') path.push(path[0]);
     refMarkers.push(new AMap.Polyline({ map: amapDraw, path, strokeColor: route.color, strokeWeight: 3, strokeOpacity: .6, zIndex: 5 }));
   }
-  // 站点标记（可点删）
+  // 站点标记（点击=删除，拖拽=微调坐标并自动保存）
   stops.forEach((s, i) => {
     const m = new AMap.Marker({
-      map: amapDraw, position: [s.lng, s.lat], anchor: 'center', zIndex: 10,
-      content: `<div title="点击删除该站点" style="color:#cfe0ff;font-size:11px;background:#0f1420dd;padding:1px 6px;border-radius:5px;border:1px solid ${route.color};white-space:nowrap;cursor:pointer">${i + 1}. ${s.name}</div>`,
+      map: amapDraw, position: [s.lng, s.lat], anchor: 'center', zIndex: 10, draggable: true,
+      content: `<div title="点击删除 / 拖拽微调位置" style="color:#cfe0ff;font-size:11px;background:#0f1420dd;padding:1px 6px;border-radius:5px;border:1px solid ${route.color};white-space:nowrap;cursor:move">${i + 1}. ${s.name}</div>`,
     });
-    m.on('click', () => deleteStopOnMap(s.id, s.name));
+    let dragged = false;
+    m.on('dragstart', () => { dragged = false; });
+    m.on('dragging', () => { dragged = true; });
+    m.on('dragend', async () => {
+      const pos = m.getPosition();
+      const lat = pos.getLat(), lng = pos.getLng();
+      try {
+        await api(`/api/stops/${s.id}`, { method: 'PUT', body: JSON.stringify({
+          route_id: s.route_id, name: s.name, lat, lng, seq: s.seq }) });
+        toast(`已保存「${s.name}」新位置 ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+        await loadAll();
+        drawRefMarkers();
+      } catch (e) { alert('保存失败：' + e.message); m.setPosition([s.lng, s.lat]); }
+    });
+    m.on('click', () => { if (!dragged) deleteStopOnMap(s.id, s.name); });
     refMarkers.push(m);
   });
   if (stops.length) amapDraw.setFitView(refMarkers, false, [40, 40, 40, 40]);
@@ -394,6 +415,15 @@ async function deleteStopOnMap(sid, name) {
   }
 }
 
+function toggleSatellite() {
+  if (!amapDraw) return;
+  satOn = !satOn;
+  if (satOn) { satLayer.show(); roadnetLayer.show(); }
+  else { satLayer.hide(); roadnetLayer.hide(); }
+  const b = $('#satToggle');
+  b.textContent = satOn ? '🗺 标准图层' : '🛰 卫星图层';
+  b.classList.toggle('ok', satOn);
+}
 function toggleDraw() {
   drawMode = !drawMode;
   $('#drawToggle').textContent = drawMode ? '停止画点' : '开始画点';
@@ -401,11 +431,22 @@ function toggleDraw() {
 }
 function redrawPoints() {
   if (!amapDraw) return;
+  // 保留用户已输入的站点名，避免重绘后被重置
+  const keepNames = [];
+  drawPoints.forEach((_, i) => {
+    const el = document.getElementById('pt-name-' + i);
+    if (el && el.value && !/^站点 \d+$/.test(el.value.trim())) keepNames[i] = el.value;
+  });
   drawMarkers.forEach(m => amapDraw.remove(m)); drawMarkers = [];
   if (drawLine) { amapDraw.remove(drawLine); drawLine = null; }
   drawPoints.forEach((p, i) => {
-    const m = new AMap.Marker({ map: amapDraw, position: p, anchor: 'center', zIndex: 50,
-      content: `<div style="background:#25a06b;color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;border:2px solid #fff">${i + 1}</div>` });
+    const m = new AMap.Marker({ map: amapDraw, position: p, anchor: 'center', zIndex: 50, draggable: true,
+      content: `<div title="可拖拽微调" style="background:#25a06b;color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;border:2px solid #fff;cursor:move">${i + 1}</div>` });
+    m.on('dragend', () => {
+      const pos = m.getPosition();
+      drawPoints[i] = [pos.getLng(), pos.getLat()];
+      redrawPoints();          // 更新连线与下方坐标显示（保留命名输入需先抓取）
+    });
     drawMarkers.push(m);
   });
   if (drawPoints.length >= 2) {
@@ -415,7 +456,7 @@ function redrawPoints() {
   $('#drawList').innerHTML = drawPoints.map((p, i) => `
     <div class="ride" style="padding:5px 9px;margin-bottom:5px">
       <span class="meta" style="color:#8b9ab5">${i + 1}.</span>
-      <input value="站点 ${i + 1}" id="pt-name-${i}" style="width:160px;padding:3px 7px">
+      <input value="${(keepNames[i] || ('站点 ' + (i + 1))).replace(/"/g, '&quot;')}" id="pt-name-${i}" style="width:160px;padding:3px 7px">
       <span class="meta" style="color:#8b9ab5">${p[1].toFixed(5)}, ${p[0].toFixed(5)}</span>
       <button class="sm" onclick="drawPoints.splice(${i},1);redrawPoints()">移除</button>
     </div>`).join('');
@@ -467,6 +508,21 @@ function drawShifts() {
     <td><span style="color:${s.color}">●</span> ${s.route_name}</td><td>${s.plate}</td><td>${s.driver_name}</td>
     <td><button class="sm" onclick="editShift(${s.id})">编辑</button>
         <button class="sm" onclick="delShift(${s.id})">删除</button></td></tr>`).join('') || '<tr><td colspan="7" class="empty">暂无班次</td></tr>';
+}
+
+/* 轻量提示（不阻塞操作，2.5s 自动消失） */
+function toast(msg) {
+  let el = document.getElementById('_toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = '_toast';
+    el.style.cssText = 'position:fixed;left:50%;bottom:32px;transform:translateX(-50%);background:#25a06b;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;z-index:9999;box-shadow:0 4px 16px #0008;max-width:90vw;display:none';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.display = 'block';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.display = 'none'; }, 2500);
 }
 
 async function loadEvents() {
