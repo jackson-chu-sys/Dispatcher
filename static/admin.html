@@ -308,21 +308,30 @@ function drawRoutes() {
 let drawMode = false, drawPoints = [], drawMarkers = [], drawLine = null, amapDraw = null, refMarkers = [];
 let satLayer = null, roadnetLayer = null, satOn = false;
 
+const DRAW_NOKEY_HTML = '<div class="empty" style="padding:40px;line-height:1.8">未配置高德地图 key，无法在地图上画线路。<br>不影响其他功能：可改在「线路/站点」标签页用坐标方式管理站点。<br>想启用地图画线路：见 INSTALL.md 第 4 步（免费申请高德 key 填入 .env 后重启）。</div>';
+
 async function initDrawMap() {
   if (amapDraw || !$('#drawMap')) return;
   const st = await (await fetch('/api/state')).json();
   if ((st.map || {}).provider !== 'amap') {
-    $('#drawMap').innerHTML = '<div class="empty" style="padding:40px">未配置高德地图 key，无法在地图上画线路（可先在「线路/站点」页用坐标管理）。<br>配置 AMAP_JS_KEY 后重启服务即可启用。</div>';
+    $('#drawMap').innerHTML = DRAW_NOKEY_HTML;
     return;
   }
   window._AMapSecurityConfig = { securityJsCode: st.map.security_code };
-  await new Promise((res, rej) => {
-    if (window.AMap) return res();
-    const s = document.createElement('script');
-    s.src = 'https://webapi.amap.com/maps?v=2.0&key=' + encodeURIComponent(st.map.js_key);
-    s.onload = res; s.onerror = rej;
-    document.head.appendChild(s);
-  });
+  try {
+    await new Promise((res, rej) => {
+      if (window.AMap) return res();
+      const s = document.createElement('script');
+      s.src = 'https://webapi.amap.com/maps?v=2.0&key=' + encodeURIComponent(st.map.js_key);
+      s.onload = res; s.onerror = () => rej(new Error('load'));
+      document.head.appendChild(s);
+    });
+  } catch (e) {
+    // 高德脚本加载失败（断网 / key 无效 / 域名白名单拦截）→ 友好提示而非空白
+    console.warn('高德地图加载失败', e);
+    $('#drawMap').innerHTML = '<div class="empty" style="padding:40px;line-height:1.8">高德地图脚本加载失败。<br>可能原因：① 电脑断网或无法访问高德服务器；② AMAP_JS_KEY 填错或安全密钥不配套；③ 高德控制台给该 key 设了「域名白名单」，当前访问地址不在白名单内。<br>排查后可先改用「线路/站点」标签页以坐标方式管理站点。</div>';
+    return;
+  }
   // 初始中心：优先用选中线路已有站点的中心，否则用默认
   let center = [113.93, 22.54], zoom = 13;
   const r0 = routes.find(r => r.id === Number($('#drawRoute').value));

@@ -36,7 +36,11 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 
 
 def _load_dotenv() -> None:
-    """轻量 .env 加载（无第三方依赖），已有环境变量不覆盖。"""
+    """轻量 .env 加载（无第三方依赖），已有环境变量不覆盖。
+
+    支持剥离行内注释：`KEY=*** Web端 key` → 值为空（避免把注释当成值，
+    否则非技术用户照 .env.example 复制后会误判 key 已配置）。
+    """
     p = os.path.join(BASE_DIR, ".env")
     if not os.path.exists(p):
         return
@@ -46,7 +50,14 @@ def _load_dotenv() -> None:
             if not line or line.startswith("#") or "=" not in line:
                 continue
             k, v = line.split("=", 1)
-            k, v = k.strip(), v.strip().strip('"').strip("'")
+            k, v = k.strip(), v.strip()
+            # 带引号的值原样保留；否则剥离行内注释（# 及其后内容）
+            if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+                v = v[1:-1]
+            else:
+                hash_i = v.find("#")
+                if hash_i != -1:
+                    v = v[:hash_i].rstrip()
             if k and k not in os.environ:
                 os.environ[k] = v
     except OSError:
