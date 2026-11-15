@@ -100,13 +100,15 @@
     <div class="drawbar">
       <label style="margin:0">目标线路：</label>
       <select id="drawRoute" style="width:180px"></select>
+      <button onclick="newRouteQuick()">+ 新建线路</button>
       <button id="drawToggle" class="primary" onclick="toggleDraw()">开始画点</button>
       <button onclick="undoPoint()">撤销上一点</button>
-      <button onclick="clearPoints()">清空</button>
+      <button onclick="clearPoints()">清空待画点</button>
       <button class="ok" onclick="submitStops()">生成站点</button>
       <span class="meta" id="drawCount" style="color:#8b9ab5">已选 0 个点</span>
     </div>
-    <div class="drawhint">点「开始画点」后，在地图上按行车顺序依次点击站点位置；每个点生成后可编辑名称。点完按「生成站点」写入线路。</div>
+    <div class="drawhint">用法：选目标线路 →「开始画点」→ 在地图上按行车顺序依次点击 → 给点命名 →「生成站点」。<b>生成后立即显示在地图上（蓝框=已有站点）</b>；点地图上的站点标记可删除；绿色=本次待画点。画错可用「撤销上一点」。</div>
+    <div id="drawExisting" style="margin-bottom:8px"></div>
     <div id="drawMap"></div>
     <div id="drawList" style="margin-top:10px"></div>
   </section>
@@ -292,12 +294,17 @@ function drawRoutes() {
       <div style="margin-top:6px"><button class="sm" onclick="editRoute(${r.id})">编辑线路</button>
       <button class="sm" onclick="delRoute(${r.id})">删除线路</button></div>
     </div>`).join('') || '<div class="empty">暂无线路</div>';
+  const _curDraw = $('#drawRoute').value;
   $('#drawRoute').innerHTML = routes.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+  if (_curDraw && routes.some(r => String(r.id) === _curDraw)) $('#drawRoute').value = _curDraw;
+  $('#drawRoute').onchange = () => drawRefMarkers();
+  const _curRoute = $('#s-route').value;
   $('#s-route').innerHTML = routes.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+  if (_curRoute && routes.some(r => String(r.id) === _curRoute)) $('#s-route').value = _curRoute;
 }
 
 /* ---------------------------------------------------------- 地图画线路 */
-let drawMode = false, drawPoints = [], drawMarkers = [], drawLine = null, amapDraw = null;
+let drawMode = false, drawPoints = [], drawMarkers = [], drawLine = null, amapDraw = null, refMarkers = [];
 
 async function initDrawMap() {
   if (amapDraw || !$('#drawMap')) return;
@@ -314,18 +321,79 @@ async function initDrawMap() {
     s.onload = res; s.onerror = rej;
     document.head.appendChild(s);
   });
-  amapDraw = new AMap.Map($('#drawMap'), { center: [113.93, 22.54], zoom: 14, viewMode: '2D', mapStyle: 'amap://styles/dark' });
-  // 已有站点做参考标记
-  st.routes.forEach(r => (r.stops || []).forEach(s => {
-    new AMap.Marker({ map: amapDraw, position: [s.lng, s.lat], anchor: 'center', zIndex: 5,
-      content: `<div style="color:#8b9ab5;font-size:11px;background:#0f142099;padding:1px 5px;border-radius:5px;white-space:nowrap">${s.name}</div>` });
-  }));
+  // 初始中心：优先用选中线路已有站点的中心，否则用默认
+  let center = [113.93, 22.54], zoom = 13;
+  const r0 = routes.find(r => r.id === Number($('#drawRoute').value));
+  if (r0 && (r0.stops || []).length) {
+    const ls = r0.stops.map(x => x.lng), as = r0.stops.map(x => x.lat);
+    center = [(Math.min(...ls) + Math.max(...ls)) / 2, (Math.min(...as) + Math.max(...as)) / 2];
+    zoom = 15;
+  }
+  amapDraw = new AMap.Map($('#drawMap'), { center, zoom, viewMode: '2D', mapStyle: 'amap://styles/dark' });
   amapDraw.on('click', e => {
     if (!drawMode) return;
     drawPoints.push([e.lnglat.getLng(), e.lnglat.getLat()]);
     redrawPoints();
   });
+  drawRefMarkers();   // 画当前选中线路的已有站点（可点删）
 }
+
+/* 已有站点参考标记：随选中线路变化重绘；点标记可删除该站点 */
+function clearRefMarkers() {
+  if (!amapDraw) return;
+  refMarkers.forEach(o => amapDraw.remove(o));
+  refMarkers = [];
+}
+function drawRefMarkers() {
+  if (!amapDraw) return;
+  clearRefMarkers();
+  const route = routes.find(r => r.id === Number($('#drawRoute').value));
+  const box = $('#drawExisting');
+  if (!route) { if (box) box.innerHTML = ''; return; }
+  const stops = (route.stops || []).slice().sort((a, b) => a.seq - b.seq);
+  // 连线
+  if (stops.length >= 2) {
+    const path = stops.map(s => [s.lng, s.lat]);
+    if (route.direction === 'loop') path.push(path[0]);
+    refMarkers.push(new AMap.Polyline({ map: amapDraw, path, strokeColor: route.color, strokeWeight: 3, strokeOpacity: .6, zIndex: 5 }));
+  }
+  // 站点标记（可点删）
+  stops.forEach((s, i) => {
+    const m = new AMap.Marker({
+      map: amapDraw, position: [s.lng, s.lat], anchor: 'center', zIndex: 10,
+      content: `<div title="点击删除该站点" style="color:#cfe0ff;font-size:11px;background:#0f1420dd;padding:1px 6px;border-radius:5px;border:1px solid ${route.color};white-space:nowrap;cursor:pointer">${i + 1}. ${s.name}</div>`,
+    });
+    m.on('click', () => deleteStopOnMap(s.id, s.name));
+    refMarkers.push(m);
+  });
+  if (stops.length) amapDraw.setFitView(refMarkers, false, [40, 40, 40, 40]);
+  // 文字清单（带删除按钮，方便键盘/触屏操作）
+  if (box) {
+    box.innerHTML = stops.length
+      ? `<div class="hint" style="margin-bottom:6px">「${route.name}」现有 ${stops.length} 个站点（点地图标记或下方「删」可删除）：</div>` +
+        stops.map(s => `<span class="fleet-chip" style="display:inline-block;margin:2px;background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:2px 8px;font-size:12px">${s.seq}. ${s.name} <a href="javascript:void(0)" onclick="deleteStopOnMap(${s.id},'${s.name.replace(/'/g, "\\'")}')" style="color:var(--bad);margin-left:4px">删</a></span>`).join('')
+      : `<div class="hint">「${route.name}」还没有站点，用上方「开始画点」在地图上画。</div>`;
+  }
+}
+async function newRouteQuick() {
+  const name = prompt('新线路名称：', '');
+  if (!name || !name.trim()) return;
+  const colors = ['#2f6fed', '#e8890c', '#25a06b', '#d94b4b', '#9b59b6', '#16a2b8'];
+  const color = colors[routes.length % colors.length];
+  let res;
+  try { res = await api('/api/routes', { method: 'POST', body: JSON.stringify({ name: name.trim(), direction: 'loop', color }) }); }
+  catch (e) { alert('新建失败：' + e.message); return; }
+  await loadAll();
+  if (res.id) { $('#drawRoute').value = res.id; drawRefMarkers(); }
+}
+async function deleteStopOnMap(sid, name) {
+  if (!confirm(`删除站点「${name}」？`)) return;
+  if (await tryApi(() => api(`/api/stops/${sid}`, { method: 'DELETE' }))) {
+    await loadAll();
+    drawRefMarkers();
+  }
+}
+
 function toggleDraw() {
   drawMode = !drawMode;
   $('#drawToggle').textContent = drawMode ? '停止画点' : '开始画点';
@@ -337,11 +405,11 @@ function redrawPoints() {
   if (drawLine) { amapDraw.remove(drawLine); drawLine = null; }
   drawPoints.forEach((p, i) => {
     const m = new AMap.Marker({ map: amapDraw, position: p, anchor: 'center', zIndex: 50,
-      content: `<div style="background:#2f6fed;color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;border:2px solid #fff">${i + 1}</div>` });
+      content: `<div style="background:#25a06b;color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;border:2px solid #fff">${i + 1}</div>` });
     drawMarkers.push(m);
   });
   if (drawPoints.length >= 2) {
-    drawLine = new AMap.Polyline({ map: amapDraw, path: drawPoints, strokeColor: '#2f6fed', strokeWeight: 4, strokeOpacity: .8 });
+    drawLine = new AMap.Polyline({ map: amapDraw, path: drawPoints, strokeColor: '#25a06b', strokeWeight: 4, strokeOpacity: .8, zIndex: 45 });
   }
   $('#drawCount').textContent = `已选 ${drawPoints.length} 个点`;
   $('#drawList').innerHTML = drawPoints.map((p, i) => `
@@ -360,10 +428,13 @@ async function submitStops() {
   if (drawPoints.length < 2) { alert('至少画 2 个站点'); return; }
   const names = drawPoints.map((_, i) => (document.getElementById('pt-name-' + i)?.value || ('站点 ' + (i + 1))).trim());
   const body = JSON.stringify({ route_id: routeId, stops: drawPoints.map((p, i) => ({ route_id: routeId, name: names[i], lat: p[1], lng: p[0] })) });
-  if (await tryApi(() => api('/api/stops/batch', { method: 'POST', body }))) {
-    alert('站点已生成！');
-    clearPoints(); loadAll();
-  }
+  let res;
+  try { res = await api('/api/stops/batch', { method: 'POST', body }); }
+  catch (e) { alert('生成失败：' + e.message); return; }
+  const n = (res && res.ids ? res.ids.length : drawPoints.length);
+  clearPoints();          // 清空待画点
+  await loadAll();        // 刷新台账数据（loadAll 末尾会自动重绘参考标记）
+  alert(`✅ 已生成 ${n} 个站点，已显示在地图上。如需删除：点地图上的站点标记，或下方「删」。`);
 }
 
 /* ---------------------------------------------------------- 排班 */
@@ -446,6 +517,7 @@ async function loadAll() {
   ]);
   vehicles = vs; drivers = ds; routes = rs; shifts = ss;
   drawVehicles(); drawDrivers(); drawRoutes(); drawShifts();
+  if (amapDraw && document.querySelector('#pane-draw').classList.contains('on')) drawRefMarkers();
 }
 loadAll();
 </script>
