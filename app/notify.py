@@ -171,6 +171,16 @@ def notify_no_start(route_name: str, depart_time: str, plate: str, driver_name: 
         dedup_key=f"nostart:{trip_id}", dedup_ttl=1800)
 
 
+def notify_stale_report(route_name: str, plate: str, driver_name: str,
+                        stop_name: str, silent_min: int, trip_id: int) -> None:
+    send_wecom(
+        f'📡 <font color="warning">上报断流</font>\n'
+        f'>{route_name}（{plate}/{driver_name}）\n'
+        f'>最后位置：{stop_name}，已 <font color="warning">{silent_min} 分钟</font>无到站上报\n'
+        f'>请调度核实车辆状态或联系司机',
+        dedup_key=f"stale:{trip_id}", dedup_ttl=1800)
+
+
 def notify_test() -> dict:
     return send_wecom_sync(
         f'✅ <font color="info">Dispatcher 通知测试成功</font>\n'
@@ -242,6 +252,24 @@ def scan_once() -> None:
                 if delay >= late_min:
                     notify_late(t["route_name"], t["depart_time"], t["plate"],
                                 t["driver_name"], t["started_at"][11:16], delay, t["id"])
+
+        # 3) 运行中班次上报断流（阈值分钟，默认 30）
+        stale_min = int(conf.get("notify.stale_min", os.environ.get("STALE_MIN", "30")) or 30)
+        for t in _rows(conn, """SELECT t.id, t.arrived_at, st.name AS stop_name,
+                                       r.name AS route_name, v.plate, d.name AS driver_name
+                                FROM trips t JOIN shifts sh ON sh.id=t.shift_id
+                                JOIN routes r ON r.id=sh.route_id
+                                JOIN vehicles v ON v.id=sh.vehicle_id
+                                JOIN drivers d ON d.id=sh.driver_id
+                                LEFT JOIN stops st ON st.id=t.current_stop_id
+                                WHERE t.day=? AND t.status='running' AND t.arrived_at IS NOT NULL""", (day,)):
+            try:
+                silent = (now_dt - datetime.fromisoformat(t["arrived_at"])).total_seconds() / 60
+            except Exception:
+                continue
+            if silent >= stale_min:
+                notify_stale_report(t["route_name"], t["plate"], t["driver_name"],
+                                    t["stop_name"] or "?", int(silent), t["id"])
     finally:
         conn.close()
 

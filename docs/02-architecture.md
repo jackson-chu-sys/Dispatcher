@@ -27,7 +27,7 @@
 Dispatcher/
 ├── app/
 │   ├── main.py        # 全部 REST 接口 + 页面路由 + WS 广播
-│   ├── notify.py      # 通知层：企业微信群机器人 + watchdog 巡检（超时/晚点/未发车）
+│   ├── notify.py      # 通知层：企业微信群机器人 + watchdog 巡检（超时/晚点/未发车/断流）
 │   └── db.py          # 建表、迁移、种子数据、每日 trip 生成
 ├── static/
 │   ├── base.css       # 深色主题
@@ -41,7 +41,8 @@ Dispatcher/
 │   ├── driver.html    # 司机端
 │   └── rider.html     # 乘客端（免登录）
 ├── scripts/
-│   └── reset_demo.py  # 清库重播种（含自增序列重置）
+│   ├── reset_demo.py  # 清库重播种（含自增序列重置）
+│   └── backup_db.py   # SQLite 在线热备（gzip+完整性校验，cron 每日 03:30）
 ├── run.sh             # 本地启动（自动建 venv）
 ├── Dockerfile / docker-compose.yml
 └── docs/

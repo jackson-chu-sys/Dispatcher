@@ -139,12 +139,13 @@
       <div class="row" style="display:flex;gap:14px;flex-wrap:wrap">
         <div class="field"><label>叫车超时未接单告警（秒）</label><input id="n-timeout" type="number" min="30" max="3600" value="180" style="width:130px"></div>
         <div class="field"><label>发车晚点告警阈值（分钟）</label><input id="n-late" type="number" min="1" max="60" value="5" style="width:130px"></div>
+        <div class="field"><label>上报断流告警阈值（分钟）</label><input id="n-stale" type="number" min="5" max="240" value="30" style="width:130px"></div>
       </div>
       <div style="display:flex;gap:8px;margin-top:8px">
         <button class="primary">保存</button>
         <button type="button" onclick="testNotify()">发送测试消息</button>
       </div>
-      <div class="hint" id="notifyStatus">通知内容：新叫车提醒、超时未接单告警、班次晚点/未发车告警。乘客/司机个人微信通知需认证主体（服务号/小程序），已预留接口。</div>
+      <div class="hint" id="notifyStatus">通知内容：新叫车提醒、超时未接单告警、班次晚点/未发车告警、上报断流告警。乘客/司机个人微信通知需认证主体（服务号/小程序），已预留接口。</div>
     </form>
   </section>
 
@@ -410,6 +411,7 @@ async function loadNotify() {
     $('#n-webhook').value = c.wecom_webhook || '';
     $('#n-timeout').value = c.ride_timeout_sec;
     $('#n-late').value = c.late_min;
+    $('#n-stale').value = c.stale_min;
     const st = await api('/api/notify/status');
     $('#notifyStatus').textContent = '当前状态：' + (st.configured ? '✅ 已配置 webhook，通知生效中' : '⚪ 未配置 webhook（保存后生效）')
       + ' · 通知内容：新叫车、超时未接单告警、班次晚点/未发车告警。乘客/司机个人微信通知需认证主体（R2），已预留。';
@@ -422,6 +424,7 @@ async function saveNotify(e) {
     wecom_webhook: $('#n-webhook').value.trim(),
     ride_timeout_sec: Number($('#n-timeout').value) || 180,
     late_min: Number($('#n-late').value) || 5,
+    stale_min: Number($('#n-stale').value) || 30,
   });
   if (await tryApi(() => api('/api/notify/conf', { method: 'PUT', body }))) {
     alert('已保存');

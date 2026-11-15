@@ -1327,6 +1327,7 @@ class NotifyConfIn(BaseModel):
     wecom_webhook: str = ""
     ride_timeout_sec: int = Field(default=180, ge=30, le=3600)
     late_min: int = Field(default=5, ge=1, le=60)
+    stale_min: int = Field(default=30, ge=5, le=240)
 
 
 @app.get("/api/notify/conf")
@@ -1337,6 +1338,7 @@ def api_notify_conf(user: dict = Depends(require_dispatcher)):
         "wecom_webhook": conf.get("notify.wecom_webhook", ""),
         "ride_timeout_sec": int(conf.get("notify.ride_timeout_sec", "180")),
         "late_min": int(conf.get("notify.late_min", "5")),
+        "stale_min": int(conf.get("notify.stale_min", "30")),
     }
 
 
@@ -1349,6 +1351,7 @@ def api_notify_conf_update(body: NotifyConfIn, user: dict = Depends(require_disp
             "notify.wecom_webhook": body.wecom_webhook.strip(),
             "notify.ride_timeout_sec": str(body.ride_timeout_sec),
             "notify.late_min": str(body.late_min),
+            "notify.stale_min": str(body.stale_min),
         }
         for k, v in kv.items():
             conn.execute("INSERT INTO config(key, value) VALUES(?,?) "

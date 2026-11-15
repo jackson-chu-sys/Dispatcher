@@ -113,3 +113,13 @@
 - 预留：notify.py 里 send_wecom* 即通道接口，R2 拍板后加 mp_template / miniprogram 通道，
   业务调用点（notify_new_ride 等）不用改。
 
+## D18 · 数据库每日热备份（DEMO 阶段防丢数据）
+- 日期：2026-11-15 ｜ 状态：已采纳
+- 决策：`scripts/backup_db.py` 用 sqlite3 backup API **在线热备**（不锁库、不影响服务），
+  输出 `data/backups/dispatcher-YYYYMMDD-HHMMSS.db.gz`，备份后立即 `PRAGMA integrity_check`，
+  保留最近 14 份自动轮换。cron `dispatcher-db-backup` 每天 03:30 跑（no_agent，静默成功，
+  仅异常或每日首份输出，走微信）。
+- 理由：DEMO 要给多人试用，单文件库一旦损坏/误删无法恢复；热备零停机、零依赖（纯标准库）。
+- 恢复：`gunzip` 后替换 `data/dispatcher.db`（停服务）；演练待上线前补。
+- 放弃：rsync 文件拷贝 —— WAL 模式下直接拷 .db 可能拿到不一致快照。
+
