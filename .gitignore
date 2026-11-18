@@ -33,3 +33,6 @@ credentials*.json
 .idea/
 .DS_Store
 Thumbs.db
+
+# 酒店提案(含署名占位,不入公开仓库)
+pitch/
